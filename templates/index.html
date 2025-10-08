@@ -169,14 +169,19 @@
                         <i class="bi bi-info-circle"></i> About
                     </div>
                     <div class="card-body small">
-                        <p>This chatbot uses:</p>
-                        <ul class="mb-0">
-                            <li>Web crawling with Trafilatura</li>
-                            <li>FAISS vector search</li>
-                            <li>Sentence Transformers embeddings</li>
-                            <li>Similarity-based guardrails</li>
+                        <p><strong>Hybrid Architecture:</strong></p>
+                        <ul class="mb-2">
+                            <li><strong>Factual Q&A:</strong> FAISS + Sentence Transformers (no hallucination)</li>
+                            <li><strong>Conversational:</strong> GPT-4o-mini for greetings & helpful responses</li>
+                            <li><strong>Intent Detection:</strong> Smart routing based on message type</li>
                         </ul>
-                        <p class="mt-2 mb-0"><strong>No hallucination:</strong> All answers are grounded in crawled content.</p>
+                        <p><strong>Tech Stack:</strong></p>
+                        <ul class="mb-0">
+                            <li>Trafilatura web crawler</li>
+                            <li>FAISS vector search</li>
+                            <li>OpenAI GPT-4o-mini</li>
+                            <li>PostgreSQL logging</li>
+                        </ul>
                     </div>
                 </div>
             </div>

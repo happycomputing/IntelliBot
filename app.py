@@ -222,8 +222,48 @@ def clear_bot():
 
 @socketio.on('chat_message')
 def handle_chat_message(data):
+    from openai_service import detect_intent, generate_greeting, generate_fallback_response
+    
     query = data.get('message', '')
-    result = retrieval.get_answer(query)
+    
+    # Detect intent
+    intent, confidence = detect_intent(query)
+    print(f"Detected intent: {intent} (confidence: {confidence})")
+    
+    # Route based on intent
+    if intent == "greeting":
+        # Generate friendly greeting with bot capabilities
+        stats_data = retrieval.get_stats()
+        raw_count = len(glob.glob("kb/raw/*.json"))
+        config = load_config()
+        stats = {
+            'raw_docs': raw_count,
+            'url': config.get('url', 'configured website'),
+            'chunks': stats_data.get('total_chunks', 0)
+        }
+        answer = generate_greeting(stats)
+        result = {
+            'answer': answer,
+            'sources': [],
+            'confidence': 1.0,
+            'intent': 'greeting'
+        }
+    elif intent in ["chitchat", "out_of_scope"]:
+        # Generate helpful fallback response
+        raw_count = len(glob.glob("kb/raw/*.json"))
+        config = load_config()
+        context = f"Indexed content: {raw_count} documents from {config.get('url', 'website')}"
+        answer = generate_fallback_response(query, context)
+        result = {
+            'answer': answer,
+            'sources': [],
+            'confidence': 1.0,
+            'intent': intent
+        }
+    else:
+        # Use retrieval for factual questions
+        result = retrieval.get_answer(query)
+        result['intent'] = 'factual_question'
     
     # Log conversation to database if available
     if DB_AVAILABLE:
