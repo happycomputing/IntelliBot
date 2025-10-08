@@ -4,6 +4,21 @@
 
 This is a Flask-based web application that provides intelligent question-answering with a **hybrid architecture**: factual questions are answered using website-grounded retrieval (no hallucination), while conversational interactions use GPT-4o-mini for natural, helpful responses. The system crawls a specified website (default: aihub.org.za), extracts and indexes the content, and intelligently routes user messages based on intent detection to provide the most appropriate response type.
 
+## Recent Changes (October 2025)
+
+### Bot Intelligence Panel
+- **Auto-Intent Detection**: Analyzes indexed content using GPT-4o-mini to suggest domain-specific intents (company_info, services, contact, products, etc.)
+- **Intent Management UI**: Modal popup panel with tabbed interface (Conversations, Intents, Training)
+- **Custom Intent System**: Create/edit/delete intents with keyword patterns and example questions
+- **Hybrid Intent Routing**: Pattern-based matching (custom intents) → OpenAI fallback for unknown intents
+- **Rasa Training Export**: Generate Rasa-format YAML from intents and examples for external training
+- **Conversation Analytics**: Enhanced view with search, filtering, and feedback visualization
+- **Database Schema**: New Intent model for storing custom intents with patterns, examples, and auto-detection flags
+
+### Renamed to IntelliBot
+- Bot renamed from "AI Hub Chatbot" to "IntelliBot" with robot icon branding
+- Friendly status messages ("✓ Knowledge base ready!" instead of technical "documents_saved")
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.

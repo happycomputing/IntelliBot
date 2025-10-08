@@ -289,47 +289,67 @@ def clear_bot():
 @socketio.on('chat_message')
 def handle_chat_message(data):
     from openai_service import detect_intent, generate_greeting, generate_fallback_response
+    from tools.detect_intents import match_intent_pattern
     
     query = data.get('message', '')
     
-    # Detect intent
-    intent, confidence = detect_intent(query)
-    print(f"Detected intent: {intent} (confidence: {confidence})")
+    # Step 1: Check custom intents first (pattern matching)
+    matched_custom_intent = None
+    if DB_AVAILABLE:
+        try:
+            custom_intents = Intent.query.filter_by(enabled=True).all()
+            for custom_intent in custom_intents:
+                if match_intent_pattern(query, custom_intent.patterns or []):
+                    matched_custom_intent = custom_intent
+                    print(f"Matched custom intent: {custom_intent.name}")
+                    break
+        except Exception as e:
+            print(f"Error checking custom intents: {e}")
     
-    # Route based on intent
-    if intent == "greeting":
-        # Generate friendly greeting with bot capabilities
-        stats_data = retrieval.get_stats()
-        raw_count = len(glob.glob("kb/raw/*.json"))
-        config = load_config()
-        stats = {
-            'raw_docs': raw_count,
-            'url': config.get('url', 'configured website'),
-            'chunks': stats_data.get('total_chunks', 0)
-        }
-        answer = generate_greeting(stats)
-        result = {
-            'answer': answer,
-            'sources': [],
-            'confidence': 1.0,
-            'intent': 'greeting'
-        }
-    elif intent in ["chitchat", "out_of_scope"]:
-        # Generate helpful fallback response
-        raw_count = len(glob.glob("kb/raw/*.json"))
-        config = load_config()
-        context = f"Indexed content: {raw_count} documents from {config.get('url', 'website')}"
-        answer = generate_fallback_response(query, context)
-        result = {
-            'answer': answer,
-            'sources': [],
-            'confidence': 1.0,
-            'intent': intent
-        }
-    else:
-        # Use retrieval for factual questions
+    # Step 2: If custom intent matched, use retrieval with context
+    if matched_custom_intent:
         result = retrieval.get_answer(query)
-        result['intent'] = 'factual_question'
+        result['intent'] = matched_custom_intent.name
+        result['custom_intent'] = True
+    else:
+        # Step 3: Fall back to OpenAI intent detection
+        intent, confidence = detect_intent(query)
+        print(f"Detected intent: {intent} (confidence: {confidence})")
+        
+        # Route based on intent
+        if intent == "greeting":
+            # Generate friendly greeting with bot capabilities
+            stats_data = retrieval.get_stats()
+            raw_count = len(glob.glob("kb/raw/*.json"))
+            config = load_config()
+            stats = {
+                'raw_docs': raw_count,
+                'url': config.get('url', 'configured website'),
+                'chunks': stats_data.get('total_chunks', 0)
+            }
+            answer = generate_greeting(stats)
+            result = {
+                'answer': answer,
+                'sources': [],
+                'confidence': 1.0,
+                'intent': 'greeting'
+            }
+        elif intent in ["chitchat", "out_of_scope"]:
+            # Generate helpful fallback response
+            raw_count = len(glob.glob("kb/raw/*.json"))
+            config = load_config()
+            context = f"Indexed content: {raw_count} documents from {config.get('url', 'website')}"
+            answer = generate_fallback_response(query, context)
+            result = {
+                'answer': answer,
+                'sources': [],
+                'confidence': 1.0,
+                'intent': intent
+            }
+        else:
+            # Use retrieval for factual questions
+            result = retrieval.get_answer(query)
+            result['intent'] = 'factual_question'
     
     # Log conversation to database if available
     if DB_AVAILABLE:

@@ -60,7 +60,7 @@ Return JSON array of intent objects."""
                 }
             ],
             response_format={"type": "json_object"},
-            max_completion_tokens=2000
+            max_tokens=2000
         )
         
         result = json.loads(response.choices[0].message.content)
@@ -80,13 +80,28 @@ Return JSON array of intent objects."""
 
 def match_intent_pattern(question, intent_patterns):
     """
-    Check if a question matches any intent patterns (simple keyword matching).
-    Returns True if any pattern keyword is found in the question.
+    Check if a question matches any intent patterns.
+    Supports both simple keyword matching and regex patterns.
+    Returns True if any pattern matches the question.
     """
+    import re
+    
     question_lower = question.lower()
     
     for pattern in intent_patterns:
-        pattern_lower = pattern.lower()
+        pattern_str = str(pattern).strip()
+        
+        # Try regex pattern matching first
+        if pattern_str.startswith('^') or pattern_str.endswith('$') or any(c in pattern_str for c in ['*', '?', '[', ']', '(', ')', '|', '\\']):
+            try:
+                if re.search(pattern_str, question_lower, re.IGNORECASE):
+                    return True
+            except re.error:
+                # If regex fails, fall back to simple matching
+                pass
+        
+        # Simple keyword/substring matching
+        pattern_lower = pattern_str.lower()
         if pattern_lower in question_lower:
             return True
     
