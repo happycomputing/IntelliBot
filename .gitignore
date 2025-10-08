@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pythonlibs/
+venv/
+env/
+.venv
+
+# Knowledge base data
+kb/raw/*.json
+kb/index/*.npy
+kb/index/*.index
+kb/index/*.json
+
+# Config
+config.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
