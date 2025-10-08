@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import trafilatura
 
-def crawl_site(start_url, max_pages=500, timeout=12):
+def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None):
     """Crawl a website and extract clean text from pages"""
     allowed_host = urllib.parse.urlparse(start_url).netloc
     out_dir = "kb/raw"
@@ -24,8 +24,9 @@ def crawl_site(start_url, max_pages=500, timeout=12):
             r = requests.get(url, headers=headers, timeout=timeout)
             if r.status_code == 200 and "text/html" in r.headers.get("Content-Type",""):
                 return r.text
-        except requests.RequestException:
-            pass
+        except requests.RequestException as e:
+            if progress_callback:
+                progress_callback('warning', f"Failed to fetch {url}: {str(e)}")
         return None
 
     def extract_clean(html, url):
@@ -48,11 +49,18 @@ def crawl_site(start_url, max_pages=500, timeout=12):
     pages = 0
     crawled_urls = []
     
+    if progress_callback:
+        progress_callback('info', f"Starting crawl of {start_url} (max {max_pages} pages)")
+    
     while to_visit and pages < max_pages:
         url = to_visit.pop(0)
         if url in seen: 
             continue
         seen.add(url)
+        
+        if progress_callback and len(seen) % 5 == 0:
+            progress_callback('info', f"Crawling... {pages} pages saved, {len(seen)} URLs visited, {len(to_visit)} queued")
+        
         html = fetch(url)
         if not html: 
             continue
@@ -62,6 +70,8 @@ def crawl_site(start_url, max_pages=500, timeout=12):
             pages += 1
             crawled_urls.append({"url": url, "chars": len(text)})
             print(f"[{pages}] {url} ({len(text)} chars)")
+            if progress_callback:
+                progress_callback('success', f"Saved page {pages}: {url[:60]}... ({len(text)} chars)")
         soup = BeautifulSoup(html, "html.parser")
         for a in soup.find_all("a", href=True):
             nu = normalize_url(a["href"], url)
@@ -69,7 +79,10 @@ def crawl_site(start_url, max_pages=500, timeout=12):
                 to_visit.append(nu)
         time.sleep(0.25)
     
-    print(f"Done. Saved {pages} pages to {out_dir}")
+    final_msg = f"Done. Saved {pages} pages to {out_dir}"
+    print(final_msg)
+    if progress_callback:
+        progress_callback('complete', final_msg)
     return {"pages": pages, "urls": crawled_urls}
 
 if __name__ == "__main__":

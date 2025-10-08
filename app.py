@@ -71,10 +71,13 @@ def start_crawl():
     url = data.get('url', 'https://aihub.org.za/')
     max_pages = data.get('max_pages', 500)
     
+    def crawl_progress(status_type, message):
+        socketio.emit('crawl_progress', {'type': status_type, 'message': message})
+    
     def crawl_task():
         try:
             socketio.emit('crawl_status', {'status': 'started', 'message': f'Starting crawl of {url}...'})
-            result = crawl_site(url, max_pages)
+            result = crawl_site(url, max_pages, progress_callback=crawl_progress)
             socketio.emit('crawl_status', {'status': 'completed', 'result': result})
         except Exception as e:
             socketio.emit('crawl_status', {'status': 'error', 'message': str(e)})
@@ -91,10 +94,13 @@ def start_indexing():
     chunk_size = data.get('chunk_size', 900)
     chunk_overlap = data.get('chunk_overlap', 150)
     
+    def index_progress(status_type, message):
+        socketio.emit('index_progress', {'type': status_type, 'message': message})
+    
     def index_task():
         try:
             socketio.emit('index_status', {'status': 'started', 'message': 'Building vector index...'})
-            result = index_kb(chunk_size, chunk_overlap)
+            result = index_kb(chunk_size, chunk_overlap, progress_callback=index_progress)
             retrieval._loaded = False
             socketio.emit('index_status', {'status': 'completed', 'result': result})
         except Exception as e:

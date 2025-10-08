@@ -17,11 +17,19 @@ socket.on('crawl_status', (data) => {
     }
 });
 
+socket.on('crawl_progress', (data) => {
+    updateProgressStatus(data);
+});
+
 socket.on('index_status', (data) => {
     updateCrawlStatus(data);
     if (data.status === 'completed') {
         loadStats();
     }
+});
+
+socket.on('index_progress', (data) => {
+    updateProgressStatus(data);
 });
 
 function loadConfig() {
@@ -202,6 +210,29 @@ function showStatus(message, type) {
     const statusDiv = document.getElementById('crawl-status');
     statusDiv.className = `status-${type}`;
     statusDiv.textContent = message;
+}
+
+function updateProgressStatus(data) {
+    const statusDiv = document.getElementById('crawl-status');
+    let statusClass = 'status-info';
+    let icon = '⟳';
+    
+    if (data.type === 'success') {
+        statusClass = 'status-success';
+        icon = '✓';
+    } else if (data.type === 'error') {
+        statusClass = 'status-error';
+        icon = '✗';
+    } else if (data.type === 'warning') {
+        statusClass = 'status-error';
+        icon = '⚠';
+    } else if (data.type === 'complete') {
+        statusClass = 'status-success';
+        icon = '✓';
+    }
+    
+    statusDiv.className = statusClass;
+    statusDiv.textContent = `${icon} ${data.message}`;
 }
 
 function escapeHtml(text) {
