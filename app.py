@@ -1,18 +1,30 @@
 import os
 import json
 import glob
+import shutil
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from retrieval_engine import RetrievalEngine
 from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
+from models import db, Conversation
 import threading
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
 
 retrieval = RetrievalEngine(similarity_threshold=0.52, top_k=4)
 
@@ -112,10 +124,75 @@ def start_indexing():
     
     return jsonify({"status": "started"})
 
+@app.route('/api/conversations', methods=['GET'])
+def get_conversations():
+    conversations = Conversation.query.order_by(Conversation.timestamp.desc()).limit(50).all()
+    return jsonify([conv.to_dict() for conv in conversations])
+
+@app.route('/api/conversations/<int:conv_id>/feedback', methods=['POST'])
+def add_feedback(conv_id):
+    data = request.json
+    feedback = data.get('feedback', '')
+    
+    conversation = Conversation.query.get(conv_id)
+    if conversation:
+        conversation.feedback = feedback
+        db.session.commit()
+        return jsonify({"status": "success", "conversation": conversation.to_dict()})
+    
+    return jsonify({"status": "error", "message": "Conversation not found"}), 404
+
+@app.route('/api/clear-bot', methods=['POST'])
+def clear_bot():
+    try:
+        # Clear database conversations
+        db.session.query(Conversation).delete()
+        db.session.commit()
+        
+        # Clear crawled documents
+        if os.path.exists('kb/raw'):
+            shutil.rmtree('kb/raw')
+            os.makedirs('kb/raw')
+        
+        # Clear index
+        if os.path.exists('kb/index'):
+            shutil.rmtree('kb/index')
+            os.makedirs('kb/index')
+        
+        # Reset config to default
+        save_config(DEFAULT_CONFIG.copy())
+        
+        # Reset retrieval engine
+        retrieval._loaded = False
+        retrieval.similarity_threshold = DEFAULT_CONFIG['similarity_threshold']
+        retrieval.top_k = DEFAULT_CONFIG['top_k']
+        
+        return jsonify({
+            "status": "success", 
+            "message": "All bot data cleared and reset to defaults"
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @socketio.on('chat_message')
 def handle_chat_message(data):
     query = data.get('message', '')
     result = retrieval.get_answer(query)
+    
+    # Log conversation to database
+    try:
+        conversation = Conversation(
+            question=query,
+            answer=result.get('answer', ''),
+            sources=result.get('sources', []),
+            similarity_scores=result.get('similarity_scores', [])
+        )
+        db.session.add(conversation)
+        db.session.commit()
+        result['conversation_id'] = conversation.id
+    except Exception as e:
+        print(f"Error logging conversation: {e}")
+    
     emit('chat_response', result)
 
 @socketio.on('connect')
