@@ -152,9 +152,14 @@
                         <i class="bi bi-clock-history"></i> Conversation History
                     </div>
                     <div class="card-body" style="max-height: 300px; overflow-y: auto;">
-                        <button class="btn btn-sm btn-outline-primary w-100 mb-2" onclick="loadConversations()">
-                            <i class="bi bi-arrow-clockwise"></i> Load History
-                        </button>
+                        <div class="d-flex gap-2 mb-2">
+                            <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="loadConversations()">
+                                <i class="bi bi-arrow-clockwise"></i> Load History
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="clearConversationHistory()">
+                                <i class="bi bi-trash"></i> Clear History
+                            </button>
+                        </div>
                         <div id="conversation-history"></div>
                     </div>
                 </div>

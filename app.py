@@ -170,6 +170,19 @@ def add_feedback(conv_id):
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/clear-conversations', methods=['POST'])
+def clear_conversations():
+    if not DB_AVAILABLE:
+        return jsonify({"status": "error", "message": "Database unavailable"}), 503
+    
+    try:
+        db.session.query(Conversation).delete()
+        db.session.commit()
+        return jsonify({"status": "success", "message": "All conversation history cleared"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/api/clear-bot', methods=['POST'])
 def clear_bot():
     try:

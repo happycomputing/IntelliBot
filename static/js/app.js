@@ -272,6 +272,29 @@ function clearBot() {
     });
 }
 
+function clearConversationHistory() {
+    if (!confirm('Are you sure you want to delete all conversation history? This cannot be undone.')) {
+        return;
+    }
+    
+    fetch('/api/clear-conversations', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showStatus('✓ Conversation history cleared', 'success');
+            document.getElementById('conversation-history').innerHTML = '<p class="text-muted small">No conversations yet.</p>';
+        } else {
+            showStatus('✗ Error clearing history: ' + data.message, 'error');
+        }
+    })
+    .catch(err => {
+        showStatus('✗ Error clearing history', 'error');
+    });
+}
+
 function loadConversations() {
     fetch('/api/conversations')
         .then(r => r.json())
