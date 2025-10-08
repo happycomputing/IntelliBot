@@ -176,7 +176,7 @@ def index_all():
                     progress(status_type, msg)
                 
                 crawl_result = crawl_site(url, max_pages, progress_callback=crawl_progress)
-                progress('success', f"Learned from {crawl_result['documents_saved']} pages")
+                progress('success', f"✓ Learned from {crawl_result['documents_saved']} pages")
             
             # Step 3: Process uploaded documents
             if uploaded_files:
@@ -193,7 +193,7 @@ def index_all():
             index_result = index_kb(chunk_size, chunk_overlap, progress_callback=index_progress_cb)
             retrieval._loaded = False
             
-            progress('success', f"Knowledge base ready! {index_result['total_chunks']} chunks indexed")
+            progress('success', f"✓ Knowledge base ready! {index_result['total_chunks']} chunks indexed")
             socketio.emit('index_status', {'status': 'completed', 'result': index_result})
             
         except Exception as e:
