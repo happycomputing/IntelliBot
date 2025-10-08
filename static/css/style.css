@@ -1,0 +1,77 @@
+body {
+    background-color: #f5f5f5;
+}
+
+#chat-messages {
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    padding: 1rem;
+}
+
+.message {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+}
+
+.message-user {
+    background-color: #e3f2fd;
+    margin-left: 2rem;
+}
+
+.message-bot {
+    background-color: #f5f5f5;
+    margin-right: 2rem;
+}
+
+.message-error {
+    background-color: #ffebee;
+    border-left: 4px solid #f44336;
+}
+
+.message-header {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.message-content {
+    margin-top: 0.5rem;
+}
+
+.source-link {
+    font-size: 0.875rem;
+    color: #0066cc;
+    word-break: break-all;
+}
+
+.confidence-badge {
+    font-size: 0.75rem;
+}
+
+#crawl-status {
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.status-success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.status-info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+}

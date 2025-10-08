@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hub Chatbot - Website Grounded Q&A</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1"><i class="bi bi-robot"></i> AI Hub Chatbot</span>
+            <span class="badge bg-light text-dark" id="status-badge">Not Indexed</span>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-gear"></i> Configuration
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Website URL</label>
+                            <input type="url" class="form-control" id="url-input" placeholder="https://aihub.org.za/">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Max Pages</label>
+                            <input type="number" class="form-control" id="max-pages-input" value="500">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Chunk Size</label>
+                            <input type="number" class="form-control" id="chunk-size-input" value="900">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Chunk Overlap</label>
+                            <input type="number" class="form-control" id="chunk-overlap-input" value="150">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="saveConfig()">
+                            <i class="bi bi-save"></i> Save Config
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header bg-success text-white">
+                        <i class="bi bi-download"></i> Crawl & Index
+                    </div>
+                    <div class="card-body">
+                        <button class="btn btn-success w-100 mb-2" onclick="startCrawl()">
+                            <i class="bi bi-arrow-clockwise"></i> Start Crawl
+                        </button>
+                        <button class="btn btn-info w-100 mb-2" onclick="startIndexing()">
+                            <i class="bi bi-database"></i> Build Index
+                        </button>
+                        <div id="crawl-status" class="mt-2 small"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <i class="bi bi-sliders"></i> Retrieval Settings
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Similarity Threshold</label>
+                            <input type="number" class="form-control" id="similarity-threshold" step="0.01" value="0.52">
+                            <small class="text-muted">Higher = stricter matching</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Top K Results</label>
+                            <input type="number" class="form-control" id="top-k" value="4">
+                        </div>
+                        <button class="btn btn-info w-100" onclick="saveConfig()">
+                            <i class="bi bi-check2"></i> Apply Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header bg-dark text-white">
+                        <i class="bi bi-chat-dots"></i> Chat Interface
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <div id="chat-messages" class="flex-grow-1 overflow-auto mb-3" style="max-height: 600px;">
+                            <div class="alert alert-info">
+                                Welcome! This chatbot only answers questions based on the indexed website content. 
+                                Configure the URL, crawl the site, and build the index to get started.
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="chat-input" placeholder="Ask a question..." onkeypress="if(event.key==='Enter')sendMessage()">
+                            <button class="btn btn-primary" onclick="sendMessage()">
+                                <i class="bi bi-send"></i> Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card mb-3">
+                    <div class="card-header bg-warning text-dark">
+                        <i class="bi bi-bar-chart"></i> Statistics
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <strong>Configured URL:</strong>
+                            <div id="stat-url" class="text-muted small">-</div>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Raw Documents:</strong>
+                            <span id="stat-raw-docs" class="badge bg-secondary">0</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Total Chunks:</strong>
+                            <span id="stat-chunks" class="badge bg-secondary">0</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Indexed:</strong>
+                            <span id="stat-indexed" class="badge bg-secondary">No</span>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary w-100 mt-2" onclick="loadStats()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <i class="bi bi-info-circle"></i> About
+                    </div>
+                    <div class="card-body small">
+                        <p>This chatbot uses:</p>
+                        <ul class="mb-0">
+                            <li>Web crawling with Trafilatura</li>
+                            <li>FAISS vector search</li>
+                            <li>Sentence Transformers embeddings</li>
+                            <li>Similarity-based guardrails</li>
+                        </ul>
+                        <p class="mt-2 mb-0"><strong>No hallucination:</strong> All answers are grounded in crawled content.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
