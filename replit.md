@@ -7,6 +7,9 @@ This is a Flask-based web application that provides intelligent question-answeri
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+- Avoid technical jargon like "crawling", "indexing", "database" - use "learning", "knowledge base", "knowledge available to me" instead
+- Provide focused, specific answers rather than general information dumps
+- Support document upload (markdown/PDF) alongside website crawling
 
 ## System Architecture
 
@@ -26,8 +29,14 @@ Preferred communication style: Simple, everyday language.
 
 **UI Components**:
 1. **Configuration Panel**: URL, max pages, chunk size, overlap, similarity threshold, top-k settings
-2. **Crawl & Index**: Start crawl and build index buttons with real-time progress indicators
-3. **Chat Interface**: Real-time Q&A with source citations and confidence scores
+2. **Knowledge Base Management**: 
+   - Document upload (markdown/PDF)
+   - Single "Index Knowledge Base" button (combines clearing, crawling, document processing, and indexing)
+   - Real-time progress indicators with status updates
+3. **Chat Interface**: 
+   - Real-time Q&A with optional source citations
+   - "Show references" toggle to control source visibility
+   - Confidence scores
 4. **Statistics Dashboard**: Displays raw documents, chunks, indexed status, and configured URL
 5. **Danger Zone**: Clear Bot button to wipe all data and reset to defaults
 6. **Conversation History**: View past conversations and add feedback for training/improvement
@@ -51,32 +60,45 @@ Preferred communication style: Simple, everyday language.
    - Stores raw extracted text as JSON documents with URL metadata
    - Configurable max pages and timeout settings
 
-2. **Content Indexing** (`tools/index_kb.py`)
+2. **Document Processing** (`tools/process_docs.py`)
+   - Extracts text from uploaded markdown files (UTF-8 decoding)
+   - Extracts text from PDF files using PyPDF2
+   - Saves processed documents with uploaded:// URL prefix
+   - Supports batch processing of multiple files
+
+3. **Content Indexing** (`tools/index_kb.py`)
    - Chunks documents with configurable size and overlap for context preservation
    - Uses sentence-transformers (all-MiniLM-L6-v2 model) for semantic embeddings
    - FAISS IndexFlatIP for cosine similarity search (normalized embeddings)
    - Stores embeddings, metadata, and FAISS index for fast retrieval
 
-3. **Retrieval Engine** (`retrieval_engine.py`)
+4. **Retrieval Engine** (`retrieval_engine.py`)
    - Lazy-loading pattern for FAISS index and embedding model
    - Configurable similarity threshold and top-k results
    - Formats answers with source citations
    - Deduplicates results from the same URL
 
-4. **OpenAI Service** (`openai_service.py`)
+5. **OpenAI Service** (`openai_service.py`)
    - Intent detection using GPT-4o-mini with JSON structured output
    - Classifies messages as: greeting, factual_question, chitchat, out_of_scope
    - Generates friendly greetings with dynamic KB statistics
    - Creates helpful fallback responses for non-factual queries
    - All responses redirect users back to asking about indexed content
 
-5. **Hybrid Chat Handler** (`app.py`)
+6. **Hybrid Chat Handler** (`app.py`)
    - Detects intent of incoming messages
    - Routes to appropriate handler:
      - Greetings → GPT-4o-mini (contextual welcome)
      - Factual questions → FAISS retrieval (grounded answers)
      - Chitchat/Out-of-scope → GPT-4o-mini (helpful redirection)
    - Logs all conversations to PostgreSQL for training and improvement
+
+7. **Combined Indexing Workflow** (`/api/index_all`)
+   - Clears previous knowledge base (raw docs and index)
+   - Crawls website if URL provided
+   - Processes uploaded documents (markdown/PDF)
+   - Indexes everything together with progress updates
+   - Single endpoint replaces separate crawl/index operations
 
 **Threading Model**: Background threads for long-running crawl and index operations to prevent blocking the main Flask thread, with Socket.IO for progress updates.
 
