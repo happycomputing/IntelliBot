@@ -29,7 +29,10 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
         for fp in raw_files:
             with open(fp, "r", encoding="utf-8") as f:
                 j = json.load(f)
-                docs.extend(chunk_text(j["text"], j["url"]))
+                # Handle both 'text' (from crawling) and 'content' (from uploads)
+                text_content = j.get("text") or j.get("content", "")
+                if text_content:
+                    docs.extend(chunk_text(text_content, j.get("url", "unknown")))
         return docs
 
     os.makedirs(IDX_DIR, exist_ok=True)

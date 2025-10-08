@@ -35,7 +35,7 @@ def process_uploaded_documents(files, raw_dir="kb/raw"):
                 
                 doc_data = {
                     "url": f"uploaded://{filename}",
-                    "content": text_content.strip()
+                    "text": text_content.strip()
                 }
                 
                 with open(doc_file, 'w', encoding='utf-8') as f:
