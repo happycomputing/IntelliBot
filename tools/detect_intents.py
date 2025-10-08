@@ -21,9 +21,11 @@ def auto_detect_intents():
     for doc_path in raw_docs[:10]:
         with open(doc_path, 'r') as f:
             doc = json.load(f)
-            snippet = doc['content'][:500]
+            # Handle both 'text' (from crawling) and 'content' (from other sources)
+            text_content = doc.get('text') or doc.get('content', '')
+            snippet = text_content[:500] if text_content else ''
             doc_samples.append({
-                'url': doc['url'],
+                'url': doc.get('url', 'unknown'),
                 'snippet': snippet
             })
     
@@ -63,8 +65,28 @@ Return JSON array of intent objects."""
             max_tokens=2000
         )
         
-        result = json.loads(response.choices[0].message.content)
+        # Safely parse and validate the response
+        content = response.choices[0].message.content
+        if not content:
+            return {
+                "status": "error",
+                "error": "Empty response from OpenAI"
+            }
+        
+        result = json.loads(content)
+        
+        # Validate the result structure
+        if not isinstance(result, dict):
+            return {
+                "status": "error",
+                "error": "Invalid response format from OpenAI"
+            }
+        
         intents = result.get("intents", [])
+        
+        # Validate intents is a list
+        if not isinstance(intents, list):
+            intents = []
         
         return {
             "status": "success",
