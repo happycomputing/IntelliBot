@@ -200,7 +200,7 @@ function addBotMessage(data) {
     
     messageDiv.innerHTML = `
         <div class="message-header">
-            <i class="bi bi-robot"></i> AI Hub Bot
+            <i class="bi bi-robot"></i> IntelliBot
             ${data.confidence > 0 ? `<span class="badge ${confidenceBadge} confidence-badge ms-auto">${confidence}% confidence</span>` : ''}
         </div>
         <div class="message-content">${escapeHtml(data.answer).replace(/\n/g, '<br>')}</div>
