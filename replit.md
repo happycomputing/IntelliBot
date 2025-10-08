@@ -225,6 +225,7 @@ PostgreSQL      # Conversation history with feedback
 
 ### Content Source
 
-- Target website: Configurable (default: https://aihub.org.za/)
+- Target website: Configurable (default: https://www.officems.co.za/)
+- Default max pages: 5
 - Respects robots.txt conventions via user-agent header
 - Single-domain crawling (no cross-site following)

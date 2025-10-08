@@ -47,8 +47,8 @@ retrieval = RetrievalEngine(similarity_threshold=0.52, top_k=4)
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "url": "https://aihub.org.za/",
-    "max_pages": 500,
+    "url": "https://www.officems.co.za/",
+    "max_pages": 5,
     "chunk_size": 900,
     "chunk_overlap": 150,
     "similarity_threshold": 0.52,
@@ -269,14 +269,17 @@ def clear_conversations():
 @app.route('/api/clear-bot', methods=['POST'])
 def clear_bot():
     try:
-        # Clear database conversations if database is available
+        # Clear database data if database is available
         if DB_AVAILABLE:
             try:
+                # Clear conversations
                 db.session.query(Conversation).delete()
+                # Clear intents
+                db.session.query(Intent).delete()
                 db.session.commit()
             except Exception as db_error:
                 db.session.rollback()
-                print(f"Warning: Failed to clear database conversations: {db_error}")
+                print(f"Warning: Failed to clear database data: {db_error}")
         
         # Clear crawled documents
         if os.path.exists('kb/raw'):
