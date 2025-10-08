@@ -1,8 +1,8 @@
-# AI Hub Chatbot - Website Grounded Q&A System
+# AI Hub Chatbot - Hybrid Website-Grounded Q&A System
 
 ## Overview
 
-This is a Flask-based web application that provides question-answering capabilities grounded in website content. The system crawls a specified website (default: aihub.org.za), extracts and indexes the content, and allows users to ask questions that are answered using relevant information retrieved from the indexed content. The application uses semantic search with FAISS vector indexing and sentence transformers for embeddings to find the most relevant content chunks for answering user queries.
+This is a Flask-based web application that provides intelligent question-answering with a **hybrid architecture**: factual questions are answered using website-grounded retrieval (no hallucination), while conversational interactions use GPT-4o-mini for natural, helpful responses. The system crawls a specified website (default: aihub.org.za), extracts and indexes the content, and intelligently routes user messages based on intent detection to provide the most appropriate response type.
 
 ## User Preferences
 
@@ -38,9 +38,9 @@ Preferred communication style: Simple, everyday language.
 
 ### Backend Architecture
 
-**Problem**: Need to orchestrate web crawling, content indexing, and question-answering with real-time updates.
+**Problem**: Need to orchestrate web crawling, content indexing, and hybrid question-answering with real-time updates.
 
-**Solution**: Flask web framework with Socket.IO for bidirectional communication, modular tool architecture for crawling and indexing.
+**Solution**: Flask web framework with Socket.IO for bidirectional communication, modular tool architecture for crawling and indexing, and OpenAI integration for conversational AI.
 
 **Core Components**:
 
@@ -63,10 +63,25 @@ Preferred communication style: Simple, everyday language.
    - Formats answers with source citations
    - Deduplicates results from the same URL
 
+4. **OpenAI Service** (`openai_service.py`)
+   - Intent detection using GPT-4o-mini with JSON structured output
+   - Classifies messages as: greeting, factual_question, chitchat, out_of_scope
+   - Generates friendly greetings with dynamic KB statistics
+   - Creates helpful fallback responses for non-factual queries
+   - All responses redirect users back to asking about indexed content
+
+5. **Hybrid Chat Handler** (`app.py`)
+   - Detects intent of incoming messages
+   - Routes to appropriate handler:
+     - Greetings → GPT-4o-mini (contextual welcome)
+     - Factual questions → FAISS retrieval (grounded answers)
+     - Chitchat/Out-of-scope → GPT-4o-mini (helpful redirection)
+   - Logs all conversations to PostgreSQL for training and improvement
+
 **Threading Model**: Background threads for long-running crawl and index operations to prevent blocking the main Flask thread, with Socket.IO for progress updates.
 
-**Pros**: Modular design, local-first (no external API dependencies for embeddings), configurable
-**Cons**: Single-server architecture, no distributed crawling, in-memory index limits
+**Pros**: Hybrid approach balances grounded answers with natural conversation, local FAISS for factual queries (no hallucination), modular design, configurable
+**Cons**: Single-server architecture, no distributed crawling, requires OpenAI API key for conversational features
 
 ### Data Storage Solutions
 
@@ -140,6 +155,7 @@ PostgreSQL      # Conversation history with feedback
 - `Flask`: Core web application framework
 - `flask-socketio`: WebSocket support for real-time updates
 - `flask-cors`: CORS handling for potential frontend separation
+- `flask-sqlalchemy`: PostgreSQL ORM for conversation logging
 
 **Web Crawling**:
 - `requests`: HTTP client for fetching web pages
@@ -147,17 +163,28 @@ PostgreSQL      # Conversation history with feedback
 - `trafilatura`: Primary content extraction (article-focused)
 
 **Machine Learning & Search**:
-- `sentence-transformers`: Semantic embedding generation
+- `sentence-transformers`: Semantic embedding generation (all-MiniLM-L6-v2)
 - `faiss-cpu`: Vector similarity search and indexing
 - `numpy`: Numerical operations and array handling
-- `scikit-learn`: Potential future ML utilities (currently unused)
+- `openai`: OpenAI API client for GPT-4o-mini conversational AI
+
+**Database**:
+- `psycopg2`: PostgreSQL database adapter
 
 **Configuration**:
-- Environment variables for Flask secret key (`SESSION_SECRET`)
+- Environment variables: `SESSION_SECRET`, `DATABASE_URL`, `OPENAI_API_KEY`
 
 ### External Services
 
-**None**: The application is designed to run entirely locally without external API dependencies. All ML models run on the server, and no cloud services are required for operation.
+**OpenAI API**: 
+- Used for conversational interactions only (greetings, chitchat, out-of-scope responses)
+- Model: GPT-4o-mini
+- Intent detection with JSON structured output
+- Factual Q&A still uses local FAISS (no external API for factual answers)
+
+**PostgreSQL Database**:
+- Stores conversation history with feedback for training
+- Graceful degradation: chat works even if database is unavailable
 
 ### Content Source
 
