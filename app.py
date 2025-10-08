@@ -190,7 +190,7 @@ def index_all():
                     progress(status_type, msg)
                 
                 crawl_result = crawl_site(url, max_pages, progress_callback=crawl_progress)
-                progress('success', f"✓ Learned from {crawl_result['documents_saved']} pages")
+                progress('success', f"✓ Learned from {crawl_result['pages']} pages")
             
             # Step 3: Process uploaded documents
             if uploaded_files:
