@@ -115,17 +115,41 @@ function startCrawl() {
 }
 
 function startIndexing() {
+    const url = document.getElementById('url-input').value;
+    const maxPages = parseInt(document.getElementById('max-pages-input').value);
     const chunkSize = parseInt(document.getElementById('chunk-size-input').value);
     const chunkOverlap = parseInt(document.getElementById('chunk-overlap-input').value);
+    const fileInput = document.getElementById('doc-upload');
     
-    fetch('/api/index', {
+    const formData = new FormData();
+    formData.append('url', url || '');
+    formData.append('max_pages', maxPages);
+    formData.append('chunk_size', chunkSize);
+    formData.append('chunk_overlap', chunkOverlap);
+    
+    if (fileInput.files.length > 0) {
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append('documents', fileInput.files[i]);
+        }
+    }
+    
+    if (!url && fileInput.files.length === 0) {
+        showStatus('Please provide a URL or upload documents', 'error');
+        return;
+    }
+    
+    fetch('/api/index_all', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chunk_size: chunkSize, chunk_overlap: chunkOverlap})
+        body: formData
     })
     .then(r => r.json())
     .then(data => {
-        showStatus('Indexing started...', 'info');
+        showStatus('Building knowledge base...', 'info');
+        fileInput.value = '';
+    })
+    .catch(err => {
+        showStatus('Error starting indexing', 'error');
+        console.error(err);
     });
 }
 
@@ -159,9 +183,11 @@ function addBotMessage(data) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message message-bot';
     
+    const showRefs = document.getElementById('show-references').checked;
+    
     let sourcesHtml = '';
-    if (data.sources && data.sources.length > 0) {
-        sourcesHtml = '<div class="mt-2"><strong>Sources:</strong><br>';
+    if (showRefs && data.sources && data.sources.length > 0) {
+        sourcesHtml = '<div class="mt-2"><strong>References:</strong><br>';
         data.sources.forEach(src => {
             const score = (src.score * 100).toFixed(0);
             sourcesHtml += `<a href="${src.url}" target="_blank" class="source-link">${src.url}</a> <span class="badge bg-info confidence-badge">${score}%</span><br>`;

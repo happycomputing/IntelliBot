@@ -54,13 +54,13 @@ def generate_greeting(stats=None):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a friendly AI assistant for a website-grounded Q&A chatbot. "
+                    "content": "You are a friendly AI assistant for a knowledge-base chatbot. "
                     "Generate a warm, professional greeting that:\n"
                     "1. Welcomes the user\n"
-                    "2. Explains that you answer questions ONLY based on indexed website content\n"
-                    "3. Mentions you don't make up information or hallucinate\n"
-                    "4. Invites them to ask questions about the indexed content\n\n"
-                    f"Keep it brief (2-3 sentences).{stats_info}"
+                    "2. Explains that you answer questions ONLY based on the knowledge available to you\n"
+                    "3. Mentions you don't make up information\n"
+                    "4. Invites them to ask questions\n\n"
+                    f"Keep it brief (2-3 sentences). Never use technical terms like 'crawling' or 'indexing'.{stats_info}"
                 },
                 {"role": "user", "content": "Generate a greeting"}
             ],
@@ -70,7 +70,7 @@ def generate_greeting(stats=None):
         return response.choices[0].message.content
     except Exception as e:
         print(f"Greeting generation error: {e}")
-        return "Hello! I'm here to answer questions based on the indexed website content. I only provide information from the knowledge base, with no hallucination. What would you like to know?"
+        return "Hello! I'm here to answer questions based only on the knowledge available to me. I don't make up information. What would you like to know?"
 
 
 def generate_fallback_response(message, context=""):
@@ -83,13 +83,13 @@ def generate_fallback_response(message, context=""):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful AI assistant for a website-grounded Q&A chatbot. "
-                    "The user's message is outside the scope of factual questions about the indexed website. "
+                    "content": "You are a helpful AI assistant for a knowledge-base chatbot. "
+                    "The user's message is outside the scope of factual questions. "
                     "Respond politely and:\n"
                     "1. If it's chitchat or casual conversation, engage briefly but remind them of your primary purpose\n"
                     "2. If it's a request you can't fulfill (write code, perform actions), politely decline and explain your limitations\n"
-                    "3. Always redirect them back to asking questions about the indexed website content\n\n"
-                    f"Context: {context if context else 'No indexed content available yet.'}"
+                    "3. Always redirect them back to asking questions about the knowledge available to you\n\n"
+                    f"Never use technical terms like 'crawling', 'indexing', or 'database'. Context: {context if context else 'No knowledge available yet.'}"
                 },
                 {"role": "user", "content": message}
             ],

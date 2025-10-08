@@ -48,17 +48,19 @@
 
                 <div class="card mb-3">
                     <div class="card-header bg-success text-white">
-                        <i class="bi bi-download"></i> Crawl & Index
+                        <i class="bi bi-book"></i> Knowledge Base
                     </div>
                     <div class="card-body">
-                        <button class="btn btn-success w-100 mb-2" onclick="startCrawl()">
-                            <i class="bi bi-arrow-clockwise"></i> Start Crawl
-                        </button>
-                        <button class="btn btn-info w-100 mb-2" onclick="startIndexing()">
-                            <i class="bi bi-database"></i> Build Index
+                        <div class="mb-3">
+                            <label class="form-label small">Upload Documents (Optional)</label>
+                            <input type="file" class="form-control form-control-sm" id="doc-upload" multiple accept=".md,.pdf">
+                            <small class="text-muted">Markdown or PDF files</small>
+                        </div>
+                        <button class="btn btn-success w-100 mb-2" onclick="startIndexing()">
+                            <i class="bi bi-lightning"></i> Index Knowledge Base
                         </button>
                         <div class="alert alert-warning py-1 px-2 mt-2 small mb-2">
-                            <strong>Note:</strong> Works best with static HTML sites. JavaScript-heavy sites may have limited content.
+                            <strong>Note:</strong> This will learn from your website URL and/or uploaded documents.
                         </div>
                         <div id="crawl-status" class="mt-2 small"></div>
                     </div>
@@ -93,9 +95,15 @@
                     <div class="card-body d-flex flex-column">
                         <div id="chat-messages" class="flex-grow-1 overflow-auto mb-3" style="max-height: 600px;">
                             <div class="alert alert-info">
-                                Welcome! This chatbot only answers questions based on the indexed website content. 
-                                Configure the URL, crawl the site, and build the index to get started.
+                                Welcome! I answer questions based only on the knowledge available to me. 
+                                Configure a URL and/or upload documents, then click "Index Knowledge Base" to get started.
                             </div>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="show-references" checked>
+                            <label class="form-check-label small" for="show-references">
+                                Show references in responses
+                            </label>
                         </div>
                         <div class="input-group">
                             <input type="text" class="form-control" id="chat-input" placeholder="Ask a question..." onkeypress="if(event.key==='Enter')sendMessage()">

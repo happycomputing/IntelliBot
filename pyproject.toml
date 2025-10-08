@@ -3,7 +3,21 @@ name = "repl-nix-workspace"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "beautifulsoup4",
+    "faiss-cpu",
+    "flask",
+    "flask-cors",
+    "flask-socketio",
+    "flask-sqlalchemy",
+    "openai",
+    "psycopg2-binary",
+    "pypdf2",
+    "requests",
+    "sentence-transformers",
+    "sqlalchemy",
+    "trafilatura",
+]
 
 [[tool.uv.index]]
 explicit = true
@@ -857,8 +871,6 @@ semantic-kernel = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'
 semantic-router = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
 senselab = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
 sent2vec = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
-sentence-transformers = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
-sequence-model-train = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
 serotiny = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
 sevenn = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
 sglang = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]

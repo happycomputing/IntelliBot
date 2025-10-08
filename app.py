@@ -8,6 +8,7 @@ from flask_cors import CORS
 from retrieval_engine import RetrievalEngine
 from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
+from tools.process_docs import process_uploaded_documents
 from models import db, Conversation
 import threading
 
@@ -135,6 +136,71 @@ def start_indexing():
             socketio.emit('index_status', {'status': 'error', 'message': str(e)})
     
     thread = threading.Thread(target=index_task)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"status": "started"})
+
+@app.route('/api/index_all', methods=['POST'])
+def index_all():
+    """
+    Combined workflow: Clear existing index, crawl URL (if provided), 
+    process uploaded documents, and index everything together.
+    """
+    url = request.form.get('url', '').strip()
+    max_pages = int(request.form.get('max_pages', 500))
+    chunk_size = int(request.form.get('chunk_size', 900))
+    chunk_overlap = int(request.form.get('chunk_overlap', 150))
+    uploaded_files = request.files.getlist('documents')
+    
+    def progress(status_type, message):
+        socketio.emit('index_progress', {'type': status_type, 'message': message})
+    
+    def combined_task():
+        try:
+            # Step 1: Clear existing index
+            progress('info', 'Clearing previous knowledge base...')
+            if os.path.exists('kb/raw'):
+                shutil.rmtree('kb/raw')
+                os.makedirs('kb/raw')
+            if os.path.exists('kb/index'):
+                shutil.rmtree('kb/index')
+                os.makedirs('kb/index')
+            
+            # Step 2: Crawl website if URL provided
+            if url:
+                progress('info', f'Learning from website: {url}...')
+                socketio.emit('index_status', {'status': 'started', 'message': f'Learning from {url}...'})
+                
+                def crawl_progress(status_type, msg):
+                    progress(status_type, msg)
+                
+                crawl_result = crawl_site(url, max_pages, progress_callback=crawl_progress)
+                progress('success', f"Learned from {crawl_result['documents_saved']} pages")
+            
+            # Step 3: Process uploaded documents
+            if uploaded_files:
+                progress('info', f'Processing {len(uploaded_files)} uploaded documents...')
+                processed = process_uploaded_documents(uploaded_files)
+                progress('success', f"Processed {len(processed)} documents")
+            
+            # Step 4: Index everything
+            progress('info', 'Building knowledge index...')
+            
+            def index_progress_cb(status_type, msg):
+                progress(status_type, msg)
+            
+            index_result = index_kb(chunk_size, chunk_overlap, progress_callback=index_progress_cb)
+            retrieval._loaded = False
+            
+            progress('success', f"Knowledge base ready! {index_result['total_chunks']} chunks indexed")
+            socketio.emit('index_status', {'status': 'completed', 'result': index_result})
+            
+        except Exception as e:
+            progress('error', str(e))
+            socketio.emit('index_status', {'status': 'error', 'message': str(e)})
+    
+    thread = threading.Thread(target=combined_task)
     thread.daemon = True
     thread.start()
     
