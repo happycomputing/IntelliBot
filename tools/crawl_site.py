@@ -65,13 +65,15 @@ def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None):
         if not html: 
             continue
         text = extract_clean(html, url)
-        if len(text) > 300:
+        if len(text) > 50:
             save_doc(url, text)
             pages += 1
             crawled_urls.append({"url": url, "chars": len(text)})
             print(f"[{pages}] {url} ({len(text)} chars)")
             if progress_callback:
                 progress_callback('success', f"Saved page {pages}: {url[:60]}... ({len(text)} chars)")
+        elif len(text) > 0 and progress_callback:
+            progress_callback('warning', f"Skipped {url[:50]}... (only {len(text)} chars - may be JS-rendered)")
         soup = BeautifulSoup(html, "html.parser")
         for a in soup.find_all("a", href=True):
             nu = normalize_url(a["href"], url)
