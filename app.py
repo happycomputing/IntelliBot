@@ -9,7 +9,7 @@ from retrieval_engine import RetrievalEngine
 from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
 from tools.process_docs import process_uploaded_documents
-from models import db, Conversation
+from models import db, Conversation, Intent
 import threading
 
 app = Flask(__name__)
@@ -348,6 +348,139 @@ def handle_chat_message(data):
             print(f"Error logging conversation: {e}")
     
     emit('chat_response', result)
+
+@app.route('/api/auto-detect-intents', methods=['POST'])
+def api_auto_detect_intents():
+    """Auto-detect intents from indexed content"""
+    from tools.detect_intents import auto_detect_intents
+    
+    result = auto_detect_intents()
+    if result.get('status') == 'error':
+        return jsonify(result), 500
+    
+    return jsonify(result)
+
+@app.route('/api/intents', methods=['GET'])
+def get_intents():
+    """Get all stored intents"""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable", "intents": []}), 503
+    
+    try:
+        intents = Intent.query.order_by(Intent.created_at.desc()).all()
+        return jsonify([intent.to_dict() for intent in intents])
+    except Exception as e:
+        return jsonify({"error": str(e), "intents": []}), 500
+
+@app.route('/api/intents', methods=['POST'])
+def create_intent():
+    """Create a new intent"""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable"}), 503
+    
+    data = request.json
+    try:
+        intent = Intent(
+            name=data['name'],
+            description=data.get('description', ''),
+            patterns=data.get('patterns', []),
+            examples=data.get('examples', []),
+            auto_detected=data.get('auto_detected', False),
+            enabled=data.get('enabled', True)
+        )
+        db.session.add(intent)
+        db.session.commit()
+        return jsonify(intent.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/intents/<int:intent_id>', methods=['PUT'])
+def update_intent(intent_id):
+    """Update an existing intent"""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable"}), 503
+    
+    data = request.json
+    try:
+        intent = Intent.query.get(intent_id)
+        if not intent:
+            return jsonify({"error": "Intent not found"}), 404
+        
+        if 'name' in data:
+            intent.name = data['name']
+        if 'description' in data:
+            intent.description = data['description']
+        if 'patterns' in data:
+            intent.patterns = data['patterns']
+        if 'examples' in data:
+            intent.examples = data['examples']
+        if 'enabled' in data:
+            intent.enabled = data['enabled']
+        
+        db.session.commit()
+        return jsonify(intent.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/intents/<int:intent_id>', methods=['DELETE'])
+def delete_intent(intent_id):
+    """Delete an intent"""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable"}), 503
+    
+    try:
+        intent = Intent.query.get(intent_id)
+        if not intent:
+            return jsonify({"error": "Intent not found"}), 404
+        
+        db.session.delete(intent)
+        db.session.commit()
+        return jsonify({"status": "deleted"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/training-export', methods=['GET'])
+def export_training_data():
+    """Export intents and conversations in Rasa YAML format"""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable"}), 503
+    
+    try:
+        intents = Intent.query.filter_by(enabled=True).all()
+        conversations = Conversation.query.limit(100).all()
+        
+        rasa_data = {
+            'version': '3.1',
+            'nlu': [],
+            'responses': {}
+        }
+        
+        for intent in intents:
+            intent_data = {
+                'intent': intent.name,
+                'examples': '|'
+            }
+            
+            if intent.examples:
+                examples_text = '\n'.join([f"      - {ex}" for ex in intent.examples])
+                intent_data['examples'] = f"|\n{examples_text}"
+            
+            rasa_data['nlu'].append(intent_data)
+        
+        import yaml
+        yaml_output = yaml.dump(rasa_data, default_flow_style=False, sort_keys=False)
+        
+        return jsonify({
+            'status': 'success',
+            'yaml': yaml_output,
+            'intents_count': len(intents),
+            'examples_count': sum(len(i.examples or []) for i in intents)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @socketio.on('connect')
 def handle_connect():

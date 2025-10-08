@@ -28,3 +28,29 @@ class Conversation(db.Model):
             'feedback': self.feedback,
             'timestamp': self.timestamp.isoformat()
         }
+
+class Intent(db.Model):
+    __tablename__ = 'intents'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    description = db.Column(db.Text)
+    patterns = db.Column(db.JSON)
+    examples = db.Column(db.JSON)
+    auto_detected = db.Column(db.Boolean, default=False)
+    enabled = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'patterns': self.patterns or [],
+            'examples': self.examples or [],
+            'auto_detected': self.auto_detected,
+            'enabled': self.enabled,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }

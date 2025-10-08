@@ -5,7 +5,7 @@ integrations = ["python_openai:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["glibcLocales", "iana-etc"]
+packages = ["glibcLocales", "iana-etc", "libyaml"]
 
 [workflows]
 runButton = "Project"
@@ -38,3 +38,7 @@ externalPort = 80
 [[ports]]
 localPort = 34883
 externalPort = 3000
+
+[[ports]]
+localPort = 46631
+externalPort = 3001

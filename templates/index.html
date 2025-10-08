@@ -196,6 +196,107 @@
         </div>
     </div>
 
+    <!-- Bot Intelligence Panel Button -->
+    <button class="btn btn-primary btn-lg" id="intelligence-panel-btn" style="position: fixed; bottom: 20px; right: 20px; border-radius: 50%; width: 60px; height: 60px; z-index: 1000;" onclick="openIntelligencePanel()">
+        <i class="bi bi-robot" style="font-size: 24px;"></i>
+    </button>
+
+    <!-- Bot Intelligence Panel Modal -->
+    <div class="modal fade" id="intelligencePanel" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-robot"></i> Bot Intelligence Panel</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" id="intelligenceTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="conversations-tab" data-bs-toggle="tab" data-bs-target="#conversations" type="button" role="tab">
+                                <i class="bi bi-chat-dots"></i> Conversations
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="intents-tab" data-bs-toggle="tab" data-bs-target="#intents" type="button" role="tab">
+                                <i class="bi bi-lightbulb"></i> Intents
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="training-tab" data-bs-toggle="tab" data-bs-target="#training" type="button" role="tab">
+                                <i class="bi bi-database"></i> Training
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content" id="intelligenceTabContent">
+                        <!-- Conversations Tab -->
+                        <div class="tab-pane fade show active" id="conversations" role="tabpanel">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6>Recent Conversations</h6>
+                                <div>
+                                    <input type="text" class="form-control form-control-sm d-inline-block" style="width: 250px;" id="conv-search" placeholder="Search conversations..." onkeyup="filterConversations()">
+                                </div>
+                            </div>
+                            <div id="panel-conversations" class="row"></div>
+                        </div>
+                        
+                        <!-- Intents Tab -->
+                        <div class="tab-pane fade" id="intents" role="tabpanel">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6>Manage Intents</h6>
+                                <div>
+                                    <button class="btn btn-primary btn-sm" onclick="autoDetectIntents()">
+                                        <i class="bi bi-magic"></i> Auto-Detect Intents
+                                    </button>
+                                    <button class="btn btn-success btn-sm" onclick="showCreateIntent()">
+                                        <i class="bi bi-plus"></i> New Intent
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="intents-list"></div>
+                            <div id="create-intent-form" style="display: none;" class="card mb-3">
+                                <div class="card-body">
+                                    <h6>Create New Intent</h6>
+                                    <div class="mb-2">
+                                        <label class="form-label">Name</label>
+                                        <input type="text" class="form-control form-control-sm" id="new-intent-name" placeholder="e.g., company_info">
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Description</label>
+                                        <input type="text" class="form-control form-control-sm" id="new-intent-desc" placeholder="What this intent covers">
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Patterns (comma-separated keywords)</label>
+                                        <input type="text" class="form-control form-control-sm" id="new-intent-patterns" placeholder="about, company, who are you">
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Example Questions (one per line)</label>
+                                        <textarea class="form-control form-control-sm" id="new-intent-examples" rows="3" placeholder="Tell me about the company&#10;What does this company do?"></textarea>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" onclick="createIntent()">Save Intent</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="cancelCreateIntent()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Training Tab -->
+                        <div class="tab-pane fade" id="training" role="tabpanel">
+                            <h6>Export Training Data</h6>
+                            <p class="text-muted small">Generate Rasa-format YAML from your intents and examples</p>
+                            <button class="btn btn-primary btn-sm mb-3" onclick="exportTrainingData()">
+                                <i class="bi bi-download"></i> Export Rasa YAML
+                            </button>
+                            <div id="training-stats" class="alert alert-info" style="display: none;"></div>
+                            <div id="training-output">
+                                <pre class="bg-light p-3" style="max-height: 400px; overflow-y: auto;"><code id="yaml-output"></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="/static/js/app.js"></script>

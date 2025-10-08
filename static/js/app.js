@@ -389,3 +389,213 @@ function saveFeedback(convId) {
         showStatus('✗ Error saving feedback', 'error');
     });
 }
+
+// Bot Intelligence Panel Functions
+let intelligencePanelModal = null;
+let allConversations = [];
+let allIntents = [];
+
+function openIntelligencePanel() {
+    if (!intelligencePanelModal) {
+        intelligencePanelModal = new bootstrap.Modal(document.getElementById('intelligencePanel'));
+    }
+    intelligencePanelModal.show();
+    loadPanelConversations();
+    loadIntents();
+}
+
+function loadPanelConversations() {
+    fetch('/api/conversations')
+        .then(r => r.json())
+        .then(data => {
+            allConversations = data.conversations || data;
+            renderPanelConversations(allConversations);
+        });
+}
+
+function renderPanelConversations(conversations) {
+    const container = document.getElementById('panel-conversations');
+    if (!conversations || conversations.length === 0) {
+        container.innerHTML = '<p class="text-muted">No conversations yet.</p>';
+        return;
+    }
+    
+    container.innerHTML = conversations.map(conv => {
+        const date = new Date(conv.timestamp).toLocaleString();
+        const hasFeedback = conv.feedback && conv.feedback.length > 0;
+        return `
+            <div class="col-md-6 mb-2">
+                <div class="card">
+                    <div class="card-body p-2">
+                        <div class="small"><strong>Q:</strong> ${escapeHtml(conv.question)}</div>
+                        <div class="small text-muted"><strong>A:</strong> ${escapeHtml(conv.answer.substring(0, 150))}${conv.answer.length > 150 ? '...' : ''}</div>
+                        <div class="text-muted" style="font-size: 0.7rem;">${date}</div>
+                        ${hasFeedback ? `<div class="badge bg-warning text-dark mt-1"><i class="bi bi-chat-square-quote"></i> ${escapeHtml(conv.feedback)}</div>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterConversations() {
+    const search = document.getElementById('conv-search').value.toLowerCase();
+    const filtered = allConversations.filter(conv => 
+        conv.question.toLowerCase().includes(search) || 
+        conv.answer.toLowerCase().includes(search)
+    );
+    renderPanelConversations(filtered);
+}
+
+function autoDetectIntents() {
+    showStatus('⟳ Analyzing indexed content...', 'info');
+    fetch('/api/auto-detect-intents', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'error') {
+                showStatus('✗ ' + data.error, 'error');
+                return;
+            }
+            
+            showStatus(`✓ Detected ${data.intents.length} potential intents!`, 'success');
+            
+            const promises = data.intents.map(intent => 
+                fetch('/api/intents', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: intent.name,
+                        description: intent.description,
+                        patterns: intent.patterns || [],
+                        examples: intent.examples || [],
+                        auto_detected: true
+                    })
+                })
+            );
+            
+            return Promise.all(promises);
+        })
+        .then(() => {
+            loadIntents();
+            setTimeout(() => showStatus('', 'info'), 3000);
+        })
+        .catch(err => {
+            showStatus('✗ Error detecting intents', 'error');
+        });
+}
+
+function loadIntents() {
+    fetch('/api/intents')
+        .then(r => r.json())
+        .then(data => {
+            allIntents = data;
+            renderIntents(data);
+        });
+}
+
+function renderIntents(intents) {
+    const container = document.getElementById('intents-list');
+    if (!intents || intents.length === 0) {
+        container.innerHTML = '<p class="text-muted">No intents defined. Click "Auto-Detect Intents" to get started!</p>';
+        return;
+    }
+    
+    container.innerHTML = intents.map(intent => `
+        <div class="card mb-2">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6>${escapeHtml(intent.name)} 
+                            ${intent.auto_detected ? '<span class="badge bg-info">Auto</span>' : ''}
+                            ${intent.enabled ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Disabled</span>'}
+                        </h6>
+                        <p class="small text-muted mb-1">${escapeHtml(intent.description || '')}</p>
+                        <div class="small">
+                            <strong>Patterns:</strong> ${(intent.patterns || []).map(p => `<span class="badge bg-light text-dark">${escapeHtml(p)}</span>`).join(' ')}
+                        </div>
+                        <div class="small mt-1">
+                            <strong>Examples:</strong> ${(intent.examples || []).length} questions
+                        </div>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteIntent(${intent.id})">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showCreateIntent() {
+    document.getElementById('create-intent-form').style.display = 'block';
+}
+
+function cancelCreateIntent() {
+    document.getElementById('create-intent-form').style.display = 'none';
+    document.getElementById('new-intent-name').value = '';
+    document.getElementById('new-intent-desc').value = '';
+    document.getElementById('new-intent-patterns').value = '';
+    document.getElementById('new-intent-examples').value = '';
+}
+
+function createIntent() {
+    const name = document.getElementById('new-intent-name').value.trim();
+    const description = document.getElementById('new-intent-desc').value.trim();
+    const patterns = document.getElementById('new-intent-patterns').value.split(',').map(p => p.trim()).filter(p => p);
+    const examples = document.getElementById('new-intent-examples').value.split('\n').filter(e => e.trim());
+    
+    if (!name) {
+        alert('Please enter an intent name');
+        return;
+    }
+    
+    fetch('/api/intents', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, description, patterns, examples})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            cancelCreateIntent();
+            loadIntents();
+            showStatus('✓ Intent created!', 'success');
+            setTimeout(() => showStatus('', 'info'), 2000);
+        }
+    });
+}
+
+function deleteIntent(intentId) {
+    if (!confirm('Delete this intent?')) return;
+    
+    fetch(`/api/intents/${intentId}`, {method: 'DELETE'})
+        .then(r => r.json())
+        .then(data => {
+            loadIntents();
+            showStatus('✓ Intent deleted', 'success');
+            setTimeout(() => showStatus('', 'info'), 2000);
+        });
+}
+
+function exportTrainingData() {
+    fetch('/api/training-export')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                return;
+            }
+            
+            document.getElementById('yaml-output').textContent = data.yaml;
+            document.getElementById('training-stats').style.display = 'block';
+            document.getElementById('training-stats').textContent = 
+                `✓ Exported ${data.intents_count} intents with ${data.examples_count} examples`;
+            
+            showStatus('✓ Training data exported!', 'success');
+            setTimeout(() => showStatus('', 'info'), 2000);
+        });
+}
