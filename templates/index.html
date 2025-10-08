@@ -135,6 +135,30 @@
                     </div>
                 </div>
 
+                <div class="card mb-3">
+                    <div class="card-header bg-danger text-white">
+                        <i class="bi bi-trash"></i> Danger Zone
+                    </div>
+                    <div class="card-body">
+                        <p class="small mb-2">Clear all crawled data, index, conversations, and reset to defaults.</p>
+                        <button class="btn btn-danger w-100" onclick="clearBot()">
+                            <i class="bi bi-exclamation-triangle"></i> Clear Bot
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header bg-purple text-white" style="background-color: #6f42c1;">
+                        <i class="bi bi-clock-history"></i> Conversation History
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        <button class="btn btn-sm btn-outline-primary w-100 mb-2" onclick="loadConversations()">
+                            <i class="bi bi-arrow-clockwise"></i> Load History
+                        </button>
+                        <div id="conversation-history"></div>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-header bg-secondary text-white">
                         <i class="bi bi-info-circle"></i> About

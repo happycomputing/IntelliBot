@@ -240,3 +240,95 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+function clearBot() {
+    if (!confirm('⚠️ WARNING: This will permanently delete ALL crawled data, the search index, conversation history, and reset all settings to defaults.\n\nAre you absolutely sure you want to continue?')) {
+        return;
+    }
+    
+    fetch('/api/clear-bot', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showStatus('✓ Bot cleared successfully! All data reset.', 'success');
+            loadConfig();
+            loadStats();
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="alert alert-info">
+                    Welcome! This chatbot only answers questions based on the indexed website content. 
+                    Configure the URL, crawl the site, and build the index to get started.
+                </div>
+            `;
+            document.getElementById('conversation-history').innerHTML = '';
+        } else {
+            showStatus('✗ Error clearing bot: ' + data.message, 'error');
+        }
+    })
+    .catch(err => {
+        showStatus('✗ Error clearing bot', 'error');
+    });
+}
+
+function loadConversations() {
+    fetch('/api/conversations')
+        .then(r => r.json())
+        .then(conversations => {
+            const container = document.getElementById('conversation-history');
+            
+            if (conversations.length === 0) {
+                container.innerHTML = '<p class="text-muted small">No conversations yet.</p>';
+                return;
+            }
+            
+            container.innerHTML = conversations.map(conv => {
+                const date = new Date(conv.timestamp).toLocaleString();
+                const feedback = conv.feedback ? conv.feedback : '';
+                
+                return `
+                    <div class="card mb-2 conversation-item">
+                        <div class="card-body p-2">
+                            <div class="small"><strong>Q:</strong> ${escapeHtml(conv.question.substring(0, 80))}${conv.question.length > 80 ? '...' : ''}</div>
+                            <div class="small text-muted"><strong>A:</strong> ${escapeHtml(conv.answer.substring(0, 100))}${conv.answer.length > 100 ? '...' : ''}</div>
+                            <div class="text-muted" style="font-size: 0.75rem;">${date}</div>
+                            <div class="mt-1">
+                                <input type="text" class="form-control form-control-sm" id="feedback-${conv.id}" placeholder="Add feedback..." value="${escapeHtml(feedback)}">
+                                <button class="btn btn-sm btn-outline-primary mt-1 w-100" onclick="saveFeedback(${conv.id})">
+                                    <i class="bi bi-save"></i> Save Feedback
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        })
+        .catch(err => {
+            console.error('Error loading conversations:', err);
+            document.getElementById('conversation-history').innerHTML = '<p class="text-danger small">Error loading history.</p>';
+        });
+}
+
+function saveFeedback(convId) {
+    const feedbackInput = document.getElementById(`feedback-${convId}`);
+    const feedback = feedbackInput.value.trim();
+    
+    fetch(`/api/conversations/${convId}/feedback`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({feedback})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showStatus('✓ Feedback saved!', 'success');
+            setTimeout(() => showStatus('', 'info'), 2000);
+        } else {
+            showStatus('✗ Error saving feedback', 'error');
+        }
+    })
+    .catch(err => {
+        showStatus('✗ Error saving feedback', 'error');
+    });
+}
