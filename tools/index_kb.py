@@ -72,7 +72,7 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
     print(final_msg)
     if progress_callback:
         progress_callback('complete', final_msg)
-    return {"chunks": len(texts), "dimension": X.shape[1]}
+    return {"total_chunks": len(texts), "dimension": X.shape[1]}
 
 if __name__ == "__main__":
     index_kb()
