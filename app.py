@@ -86,8 +86,22 @@ def update_config():
 def get_stats():
     stats = retrieval.get_stats()
     
-    raw_count = len(glob.glob("kb/raw/*.json"))
-    stats['raw_documents'] = raw_count
+    # Get raw document count and sources
+    raw_files = glob.glob("kb/raw/*.json")
+    stats['raw_documents'] = len(raw_files)
+    
+    # Extract document sources (URLs)
+    sources = []
+    for raw_file in raw_files:
+        try:
+            with open(raw_file, 'r') as f:
+                doc = json.load(f)
+                url = doc.get('url', 'Unknown')
+                sources.append(url)
+        except Exception:
+            pass
+    
+    stats['document_sources'] = sorted(list(set(sources)))  # Unique, sorted URLs
     
     config = load_config()
     stats['configured_url'] = config.get('url', '')

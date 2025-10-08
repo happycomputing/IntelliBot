@@ -91,6 +91,16 @@ function loadStats() {
                 statusBadge.textContent = 'Not Indexed';
                 statusBadge.className = 'badge bg-warning text-dark';
             }
+            
+            // Display document sources
+            const sourcesDiv = document.getElementById('stat-sources');
+            if (stats.document_sources && stats.document_sources.length > 0) {
+                sourcesDiv.innerHTML = stats.document_sources.map(url => 
+                    `<div class="mb-1"><i class="bi bi-link-45deg"></i> <a href="${url}" target="_blank" class="text-decoration-none">${url}</a></div>`
+                ).join('');
+            } else {
+                sourcesDiv.innerHTML = '<em>No documents loaded</em>';
+            }
         });
 }
 
