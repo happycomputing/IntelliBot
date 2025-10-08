@@ -197,6 +197,9 @@ def index_all():
             socketio.emit('index_status', {'status': 'completed', 'result': index_result})
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Indexing error: {error_details}")
             progress('error', str(e))
             socketio.emit('index_status', {'status': 'error', 'message': str(e)})
     

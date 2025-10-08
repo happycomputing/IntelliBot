@@ -39,10 +39,10 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
     print("Loading docs…")
     docs = load_docs()
     if not docs:
-        error_msg = "No crawled docs found. Run the crawler first."
+        error_msg = "No documents found. Please add a URL or upload documents first."
         if progress_callback:
             progress_callback('error', error_msg)
-        raise SystemExit(error_msg)
+        raise ValueError(error_msg)
     texts = [d["text"] for d in docs]
     
     chunk_msg = f"Loaded {len(texts)} chunks from documents"
