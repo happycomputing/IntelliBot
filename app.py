@@ -13,7 +13,14 @@ import threading
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+
+# Database configuration with validation
+database_url = os.environ.get('DATABASE_URL')
+if not database_url:
+    print("WARNING: DATABASE_URL not set. Conversation logging will be disabled.")
+    database_url = 'sqlite:///fallback.db'
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_recycle": 300,
     "pool_pre_ping": True,
@@ -23,8 +30,17 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 db.init_app(app)
 
+# Database availability flag
+DB_AVAILABLE = False
+
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+        DB_AVAILABLE = True
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
 
 retrieval = RetrievalEngine(similarity_threshold=0.52, top_k=4)
 
@@ -126,28 +142,45 @@ def start_indexing():
 
 @app.route('/api/conversations', methods=['GET'])
 def get_conversations():
-    conversations = Conversation.query.order_by(Conversation.timestamp.desc()).limit(50).all()
-    return jsonify([conv.to_dict() for conv in conversations])
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable", "conversations": []}), 503
+    
+    try:
+        conversations = Conversation.query.order_by(Conversation.timestamp.desc()).limit(50).all()
+        return jsonify([conv.to_dict() for conv in conversations])
+    except Exception as e:
+        return jsonify({"error": str(e), "conversations": []}), 500
 
 @app.route('/api/conversations/<int:conv_id>/feedback', methods=['POST'])
 def add_feedback(conv_id):
+    if not DB_AVAILABLE:
+        return jsonify({"status": "error", "message": "Database unavailable"}), 503
+    
     data = request.json
     feedback = data.get('feedback', '')
     
-    conversation = Conversation.query.get(conv_id)
-    if conversation:
-        conversation.feedback = feedback
-        db.session.commit()
-        return jsonify({"status": "success", "conversation": conversation.to_dict()})
-    
-    return jsonify({"status": "error", "message": "Conversation not found"}), 404
+    try:
+        conversation = Conversation.query.get(conv_id)
+        if conversation:
+            conversation.feedback = feedback
+            db.session.commit()
+            return jsonify({"status": "success", "conversation": conversation.to_dict()})
+        return jsonify({"status": "error", "message": "Conversation not found"}), 404
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/clear-bot', methods=['POST'])
 def clear_bot():
     try:
-        # Clear database conversations
-        db.session.query(Conversation).delete()
-        db.session.commit()
+        # Clear database conversations if database is available
+        if DB_AVAILABLE:
+            try:
+                db.session.query(Conversation).delete()
+                db.session.commit()
+            except Exception as db_error:
+                db.session.rollback()
+                print(f"Warning: Failed to clear database conversations: {db_error}")
         
         # Clear crawled documents
         if os.path.exists('kb/raw'):
@@ -179,19 +212,21 @@ def handle_chat_message(data):
     query = data.get('message', '')
     result = retrieval.get_answer(query)
     
-    # Log conversation to database
-    try:
-        conversation = Conversation(
-            question=query,
-            answer=result.get('answer', ''),
-            sources=result.get('sources', []),
-            similarity_scores=result.get('similarity_scores', [])
-        )
-        db.session.add(conversation)
-        db.session.commit()
-        result['conversation_id'] = conversation.id
-    except Exception as e:
-        print(f"Error logging conversation: {e}")
+    # Log conversation to database if available
+    if DB_AVAILABLE:
+        try:
+            conversation = Conversation(
+                question=query,
+                answer=result.get('answer', ''),
+                sources=result.get('sources', []),
+                similarity_scores=result.get('similarity_scores', [])
+            )
+            db.session.add(conversation)
+            db.session.commit()
+            result['conversation_id'] = conversation.id
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error logging conversation: {e}")
     
     emit('chat_response', result)
 

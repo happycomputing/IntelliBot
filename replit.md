@@ -20,9 +20,20 @@ Preferred communication style: Simple, everyday language.
 - Real-time updates via WebSockets (Socket.IO) for crawling/indexing progress and chat responses
 - RESTful API endpoints for configuration management
 - Bootstrap framework for responsive, professional UI without custom CSS complexity
-- Separated concerns: configuration panel, action buttons, chat interface, and status display
+- Separated concerns: configuration panel, action buttons, chat interface, conversation history, and status display
+- Conversation history with feedback capability for iterative improvement
+- Danger Zone with Clear Bot functionality to reset all data
 
-**Pros**: Simple to maintain, no build process required, real-time feedback
+**UI Components**:
+1. **Configuration Panel**: URL, max pages, chunk size, overlap, similarity threshold, top-k settings
+2. **Crawl & Index**: Start crawl and build index buttons with real-time progress indicators
+3. **Chat Interface**: Real-time Q&A with source citations and confidence scores
+4. **Statistics Dashboard**: Displays raw documents, chunks, indexed status, and configured URL
+5. **Danger Zone**: Clear Bot button to wipe all data and reset to defaults
+6. **Conversation History**: View past conversations and add feedback for training/improvement
+7. **About Section**: System capabilities and technology stack
+
+**Pros**: Simple to maintain, no build process required, real-time feedback, conversation tracking
 **Cons**: Less structured than modern frameworks, limited state management
 
 ### Backend Architecture
@@ -59,9 +70,9 @@ Preferred communication style: Simple, everyday language.
 
 ### Data Storage Solutions
 
-**Problem**: Need to store raw crawled content, vector embeddings, and configuration.
+**Problem**: Need to store raw crawled content, vector embeddings, configuration, and conversation history.
 
-**Solution**: File-based storage with JSON for structured data and FAISS binary format for vector indices.
+**Solution**: Hybrid approach with file-based storage for content/embeddings and PostgreSQL for conversation logging.
 
 **Storage Structure**:
 ```
@@ -69,18 +80,24 @@ kb/
   raw/          # Crawled content as JSON (hash-based filenames)
   index/        # FAISS index, embeddings.npy, meta.json
 config.json     # Application configuration
+PostgreSQL      # Conversation history with feedback
 ```
 
-**Rationale**: 
-- No database overhead for simple read-heavy workload
+**File Storage Rationale**: 
+- No database overhead for simple read-heavy workload (crawled content)
 - FAISS native binary format for efficient index loading
 - JSON for human-readable metadata and configuration
 - SHA-1 hashed filenames prevent URL encoding issues
 
-**Alternatives Considered**: SQLite for metadata (rejected: adds complexity without clear benefit for this scale)
+**Database Storage (PostgreSQL)**:
+- Stores conversation history (question, answer, sources, similarity_scores, timestamp, feedback)
+- Enables conversation logging for training and improvement
+- User feedback on bot responses
+- Flask-SQLAlchemy ORM with connection pooling
+- Graceful degradation: app continues to work for chat even if database is unavailable
 
-**Pros**: Zero configuration, portable, version-controllable
-**Cons**: No ACID guarantees, limited concurrent write capability, no query optimization
+**Pros**: Zero-config files for core features, ACID compliance for conversations, version-controllable content
+**Cons**: Requires PostgreSQL for conversation logging (optional feature)
 
 ### Embedding and Search Architecture
 

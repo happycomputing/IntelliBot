@@ -275,10 +275,18 @@ function clearBot() {
 function loadConversations() {
     fetch('/api/conversations')
         .then(r => r.json())
-        .then(conversations => {
+        .then(data => {
             const container = document.getElementById('conversation-history');
             
-            if (conversations.length === 0) {
+            // Handle error response from server
+            if (data.error) {
+                container.innerHTML = `<p class="text-warning small">${escapeHtml(data.error)}</p>`;
+                return;
+            }
+            
+            const conversations = data.conversations || data;
+            
+            if (!Array.isArray(conversations) || conversations.length === 0) {
                 container.innerHTML = '<p class="text-muted small">No conversations yet.</p>';
                 return;
             }
