@@ -6,6 +6,17 @@ This is a Flask-based web application that provides intelligent question-answeri
 
 ## Recent Changes (October 2025)
 
+### Rasa-Style Action System (Latest)
+- **Intent → Action Mapping**: Complete implementation of Rasa-style actions with three action types:
+  - `static`: Predefined text responses (like Rasa's `utter_*` actions)
+  - `retrieval`: FAISS-based answers from indexed documents
+  - `hybrid`: Template responses with {context} placeholders filled by FAISS retrieval
+- **Smart Default Responses**: Auto-assigns appropriate action types based on intent names (contact→hybrid, services→hybrid, pricing→hybrid, etc.)
+- **Response Templates**: Support for multiple response variations (randomly selected) and dynamic context injection
+- **ActionHandler System** (`actions.py`): Executes intent-specific actions instead of generic retrieval for all intents
+- **Database Schema Extended**: Added `action_type` and `responses` fields to Intent model
+- **PDF Upload Fixed**: Stream handling bug resolved using `file.stream.seek(0)` to prevent "I/O operation on closed file" errors
+
 ### Bot Intelligence Panel
 - **Auto-Intent Detection**: Analyzes indexed content using GPT-4o-mini to suggest domain-specific intents (company_info, services, contact, products, etc.)
 - **Intent Management UI**: Modal popup panel with tabbed interface (Conversations, Intents, Training)
@@ -13,11 +24,10 @@ This is a Flask-based web application that provides intelligent question-answeri
 - **Hybrid Intent Routing**: Pattern-based matching (custom intents) → OpenAI fallback for unknown intents
 - **Rasa Training Export**: Generate Rasa-format YAML from intents and examples for external training
 - **Conversation Analytics**: Enhanced view with search, filtering, and feedback visualization
-- **Database Schema**: New Intent model for storing custom intents with patterns, examples, and auto-detection flags
 
-### Renamed to IntelliBot
-- Bot renamed from "AI Hub Chatbot" to "IntelliBot" with robot icon branding
-- Friendly status messages ("✓ Knowledge base ready!" instead of technical "documents_saved")
+### Default Configuration
+- Default website changed to: **www.officems.co.za** (5 pages max)
+- Clear Bot now wipes: documents, index, conversations, intents, and resets configuration to defaults
 
 ## User Preferences
 
