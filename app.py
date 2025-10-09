@@ -311,13 +311,14 @@ def clear_bot():
             shutil.rmtree('kb/index')
             os.makedirs('kb/index')
         
-        # Reset config to default
+        # Reset config to default and reload
         save_config(DEFAULT_CONFIG.copy())
+        reset_config = load_config()
         
-        # Reset retrieval engine
+        # Reset retrieval engine with reloaded config
         retrieval._loaded = False
-        retrieval.similarity_threshold = DEFAULT_CONFIG['similarity_threshold']
-        retrieval.top_k = DEFAULT_CONFIG['top_k']
+        retrieval.similarity_threshold = reset_config.get('similarity_threshold', 0.45)
+        retrieval.top_k = reset_config.get('top_k', 4)
         
         return jsonify({
             "status": "success", 
