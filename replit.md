@@ -29,7 +29,7 @@ The backend is a Flask application utilizing Socket.IO for bidirectional communi
 -   **OpenAI Service**: Employs GPT-4o-mini for intent detection (greeting, factual_question, chitchat, out_of_scope) and generating conversational responses, ensuring factual queries are handled by the retrieval engine.
 -   **Hybrid Chat Handler**: Routes messages based on detected intent to the appropriate response mechanism (GPT-4o-mini for conversational, retrieval engine for factual).
 -   **Rasa-Style Action System**: Implements `static`, `retrieval`, and `hybrid` action types mapped to intents, allowing for dynamic contextual responses using templates.
--   **Bot Intelligence Panel**: A UI for managing intents, providing custom intent creation, and leveraging GPT-4o-mini for auto-intent detection.
+-   **Bot Intelligence Panel**: A UI for managing intents with enhanced visualization showing action types (static/retrieval/hybrid), response templates, and example counts. Features inline editing of action types and responses, plus live preview of hybrid templates with real knowledge base data.
 
 Long-running operations like crawling and indexing run in background threads, with progress updates pushed via Socket.IO.
 
