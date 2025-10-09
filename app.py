@@ -519,6 +519,41 @@ def delete_intent(intent_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/intents/<int:intent_id>/preview', methods=['POST'])
+def preview_intent(intent_id):
+    """Preview hybrid template with real knowledge base data"""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable"}), 503
+    
+    try:
+        intent = Intent.query.get(intent_id)
+        if not intent:
+            return jsonify({"error": "Intent not found"}), 404
+        
+        if intent.action_type != 'hybrid':
+            return jsonify({"error": "Only hybrid intents can be previewed"}), 400
+        
+        sample_query = intent.examples[0] if intent.examples else "Tell me about your services"
+        
+        retrieval_result = retrieval.get_answer(sample_query)
+        context = retrieval_result.get('answer', 'No relevant information found')
+        
+        previews = []
+        for template in (intent.responses or []):
+            preview = template.replace('{context}', context)
+            preview = preview.replace('{sources_count}', str(len(retrieval_result.get('sources', []))))
+            previews.append({
+                'template': template,
+                'preview': preview
+            })
+        
+        return jsonify({
+            'sample_query': sample_query,
+            'previews': previews
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/training-export', methods=['GET'])
 def export_training_data():
     """Export intents and conversations in Rasa YAML format"""
