@@ -76,7 +76,7 @@ def test_services_query():
     print(f"Direct query 'services offered company':")
     print(f"  Answer: {direct_result['answer'][:150]}...")
     print(f"  Sources: {len(direct_result['sources'])}")
-    print(f"  Scores: {direct_result['similarity_scores']}")
+    print(f"  Scores: {direct_result.get('similarity_scores', [])}")
     
     return result
 
