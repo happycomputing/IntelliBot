@@ -7,7 +7,7 @@ from sentence_transformers import SentenceTransformer
 IDX_DIR = "kb/index"
 
 class RetrievalEngine:
-    def __init__(self, similarity_threshold=0.52, top_k=4):
+    def __init__(self, similarity_threshold=0.45, top_k=4):
         self.similarity_threshold = similarity_threshold
         self.top_k = top_k
         self._loaded = False

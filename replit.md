@@ -6,7 +6,13 @@ This is a Flask-based web application that provides intelligent question-answeri
 
 ## Recent Changes (October 2025)
 
-### Rasa-Style Action System (Latest)
+### Similarity Threshold Fix (Latest - Oct 9)
+- **Fixed retrieval failure**: Lowered similarity threshold from 0.52 to 0.45
+- **Root cause**: FAISS was finding perfect matches (score 0.4964) but filtering them out due to overly strict threshold
+- **Impact**: Hybrid actions now work correctly - templates fill with actual content instead of "couldn't find anything" messages
+- **Verified**: Full intent-to-action flow tested and working (services_inquiry intent → hybrid action → contextual response)
+
+### Rasa-Style Action System
 - **Intent → Action Mapping**: Complete implementation of Rasa-style actions with three action types:
   - `static`: Predefined text responses (like Rasa's `utter_*` actions)
   - `retrieval`: FAISS-based answers from indexed documents
