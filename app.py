@@ -43,17 +43,29 @@ with app.app_context():
         print(f"❌ Database initialization error: {e}")
         print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
 
-retrieval = RetrievalEngine(similarity_threshold=0.52, top_k=4)
-
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
     "url": "https://www.officems.co.za/",
     "max_pages": 5,
     "chunk_size": 900,
     "chunk_overlap": 150,
-    "similarity_threshold": 0.52,
+    "similarity_threshold": 0.45,
     "top_k": 4
 }
+
+# Load config and initialize retrieval engine with correct settings
+startup_config = DEFAULT_CONFIG.copy()
+if os.path.exists(CONFIG_FILE):
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            startup_config = json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load config.json: {e}")
+
+retrieval = RetrievalEngine(
+    similarity_threshold=startup_config.get('similarity_threshold', 0.45), 
+    top_k=startup_config.get('top_k', 4)
+)
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -78,7 +90,8 @@ def get_config():
 def update_config():
     config = request.json
     save_config(config)
-    retrieval.similarity_threshold = config.get('similarity_threshold', 0.52)
+    # Update retrieval engine settings immediately
+    retrieval.similarity_threshold = config.get('similarity_threshold', 0.45)
     retrieval.top_k = config.get('top_k', 4)
     return jsonify({"status": "success", "config": config})
 
