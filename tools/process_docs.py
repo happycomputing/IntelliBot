@@ -12,17 +12,23 @@ def process_uploaded_documents(files, raw_dir="kb/raw"):
     processed = []
     
     for file in files:
-        filename = file.filename
+        if isinstance(file, dict):
+            filename = file['filename']
+            file_content = file['content']
+        else:
+            filename = file.filename
+            file_content = file.read() if hasattr(file, 'read') else None
+        
         file_ext = os.path.splitext(filename)[1].lower()
         
         try:
             text_content = ""
             
             if file_ext == '.md':
-                text_content = file.read().decode('utf-8')
+                text_content = file_content.decode('utf-8') if isinstance(file_content, bytes) else file_content
             elif file_ext == '.pdf':
-                file.stream.seek(0)
-                pdf_reader = PdfReader(file.stream)
+                from io import BytesIO
+                pdf_reader = PdfReader(BytesIO(file_content))
                 text_content = ""
                 for page in pdf_reader.pages:
                     text_content += page.extract_text() + "\n"

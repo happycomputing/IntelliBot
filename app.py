@@ -165,7 +165,14 @@ def index_all():
     max_pages = int(request.form.get('max_pages', 500))
     chunk_size = int(request.form.get('chunk_size', 900))
     chunk_overlap = int(request.form.get('chunk_overlap', 150))
-    uploaded_files = request.files.getlist('documents')
+    uploaded_files_raw = request.files.getlist('documents')
+    
+    uploaded_files = []
+    for file in uploaded_files_raw:
+        uploaded_files.append({
+            'filename': file.filename,
+            'content': file.read()
+        })
     
     def progress(status_type, message):
         socketio.emit('index_progress', {'type': status_type, 'message': message})

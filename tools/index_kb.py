@@ -56,7 +56,7 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
     if progress_callback:
         progress_callback('info', "Creating embeddings (this may take a while)...")
     print("Embedding…")
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device='cpu')
     X = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False).astype("float32")
 
     if progress_callback:
