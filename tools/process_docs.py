@@ -21,7 +21,8 @@ def process_uploaded_documents(files, raw_dir="kb/raw"):
             if file_ext == '.md':
                 text_content = file.read().decode('utf-8')
             elif file_ext == '.pdf':
-                pdf_reader = PdfReader(file)
+                file.stream.seek(0)
+                pdf_reader = PdfReader(file.stream)
                 text_content = ""
                 for page in pdf_reader.pages:
                     text_content += page.extract_text() + "\n"
