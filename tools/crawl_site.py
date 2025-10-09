@@ -44,7 +44,8 @@ def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None):
         with open(os.path.join(out_dir, f"{hid}.json"), "w", encoding="utf-8") as f:
             json.dump({"url": url, "text": text}, f, ensure_ascii=False)
 
-    to_visit = [start_url]
+    normalized_start = normalize_url(start_url, start_url)
+    to_visit = [normalized_start] if normalized_start else [start_url]
     seen = set()
     pages = 0
     crawled_urls = []
