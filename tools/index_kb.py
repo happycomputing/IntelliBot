@@ -80,6 +80,19 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
     with open(os.path.join(IDX_DIR, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(docs, f, ensure_ascii=False)
     
+    config_file = "config.json"
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+            config['similarity_threshold'] = 0.40
+            with open(config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+            if progress_callback:
+                progress_callback('info', "Updated similarity threshold to 0.40 for OpenAI embeddings")
+        except Exception as e:
+            print(f"Warning: Could not update config: {e}")
+    
     final_msg = f"Index built successfully! {len(texts)} chunks indexed with OpenAI embeddings."
     print(final_msg)
     if progress_callback:
