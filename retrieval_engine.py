@@ -1,8 +1,7 @@
 import os, json
 from typing import List, Dict, Tuple
 import numpy as np
-import faiss
-from sentence_transformers import SentenceTransformer
+from openai import OpenAI
 
 IDX_DIR = "kb/index"
 
@@ -11,34 +10,50 @@ class RetrievalEngine:
         self.similarity_threshold = similarity_threshold
         self.top_k = top_k
         self._loaded = False
-        self.index = None
+        self.embeddings = None
         self.meta = None
-        self.model = None
+        self.client = None
 
     def load(self):
-        """Load the FAISS index and embedding model"""
+        """Load the embeddings and OpenAI client"""
         if self._loaded:
             return
         
-        if not os.path.exists(os.path.join(IDX_DIR, "faiss.index")):
+        if not os.path.exists(os.path.join(IDX_DIR, "embeddings.npy")):
             raise FileNotFoundError("No index found. Please crawl and index a website first.")
         
-        self.index = faiss.read_index(os.path.join(IDX_DIR, "faiss.index"))
+        self.embeddings = np.load(os.path.join(IDX_DIR, "embeddings.npy"))
         with open(os.path.join(IDX_DIR, "meta.json"), "r", encoding="utf-8") as f:
             self.meta = json.load(f)
-        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._loaded = True
+
+    def cosine_similarity(self, query_vec, doc_vecs):
+        """Calculate cosine similarity between query and document vectors"""
+        query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-10)
+        doc_norms = doc_vecs / (np.linalg.norm(doc_vecs, axis=1, keepdims=True) + 1e-10)
+        similarities = np.dot(doc_norms, query_norm)
+        return similarities
 
     def search(self, query: str) -> List[Tuple[float, Dict]]:
         """Search for relevant chunks in the knowledge base"""
         self.load()
-        q = self.model.encode([query], convert_to_numpy=True, normalize_embeddings=True).astype("float32")
-        sims, idxs = self.index.search(q, self.top_k)
+        
+        response = self.client.embeddings.create(
+            model="text-embedding-3-small",
+            input=[query]
+        )
+        query_vec = np.array(response.data[0].embedding, dtype="float32")
+        
+        similarities = self.cosine_similarity(query_vec, self.embeddings)
+        
+        top_indices = np.argsort(similarities)[::-1][:self.top_k]
+        
         results = []
-        for s, i in zip(sims[0].tolist(), idxs[0].tolist()):
-            if i == -1:
-                continue
-            results.append((float(s), self.meta[i]))
+        for idx in top_indices:
+            score = float(similarities[idx])
+            results.append((score, self.meta[idx]))
+        
         return results
 
     def format_answer(self, hits: List[Tuple[float, Dict]]) -> str:

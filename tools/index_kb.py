@@ -2,14 +2,13 @@
 import os, json, glob
 from typing import List, Dict
 import numpy as np
-from sentence_transformers import SentenceTransformer
-import faiss
+from openai import OpenAI
 
 RAW_DIR = "kb/raw"
 IDX_DIR = "kb/index"
 
 def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
-    """Build FAISS vector index from crawled documents"""
+    """Build vector index from crawled documents using OpenAI embeddings"""
     
     def chunk_text(text: str, url: str):
         chunks = []
@@ -29,7 +28,6 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
         for fp in raw_files:
             with open(fp, "r", encoding="utf-8") as f:
                 j = json.load(f)
-                # Handle both 'text' (from crawling) and 'content' (from uploads)
                 text_content = j.get("text") or j.get("content", "")
                 if text_content:
                     docs.extend(chunk_text(text_content, j.get("url", "unknown")))
@@ -54,24 +52,35 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
         progress_callback('success', chunk_msg)
 
     if progress_callback:
-        progress_callback('info', "Creating embeddings (this may take a while)...")
-    print("Embedding…")
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device='cpu')
-    X = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False).astype("float32")
-
+        progress_callback('info', "Creating embeddings with OpenAI...")
+    print("Embedding with OpenAI...")
+    
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    embeddings = []
+    batch_size = 100
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        if progress_callback:
+            progress_callback('info', f"Embedding batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}...")
+        response = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=batch
+        )
+        embeddings.extend([e.embedding for e in response.data])
+    
+    X = np.array(embeddings, dtype="float32")
+    
     if progress_callback:
         progress_callback('success', f"Created {X.shape[0]} embeddings with {X.shape[1]} dimensions")
-        progress_callback('info', "Building FAISS index...")
-    print("Indexing…")
-    index = faiss.IndexFlatIP(X.shape[1])
-    index.add(X)
+        progress_callback('info', "Saving index...")
+    print("Saving index…")
 
     np.save(os.path.join(IDX_DIR, "embeddings.npy"), X)
     with open(os.path.join(IDX_DIR, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(docs, f, ensure_ascii=False)
-    faiss.write_index(index, os.path.join(IDX_DIR, "faiss.index"))
     
-    final_msg = f"Index built successfully! {len(texts)} chunks indexed."
+    final_msg = f"Index built successfully! {len(texts)} chunks indexed with OpenAI embeddings."
     print(final_msg)
     if progress_callback:
         progress_callback('complete', final_msg)

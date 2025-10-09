@@ -5,7 +5,6 @@ description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4",
-    "faiss-cpu",
     "flask",
     "flask-cors",
     "flask-socketio",
@@ -16,9 +15,6 @@ dependencies = [
     "pypdf2",
     "pyyaml",
     "requests",
-    "torch>=2.0.0",
-    "transformers>=4.37.2",
-    "sentence-transformers>=2.7.0,<3.0.0",
     "sqlalchemy",
     "trafilatura",
 ]
