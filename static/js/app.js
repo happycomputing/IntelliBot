@@ -510,14 +510,36 @@ function renderIntents(intents) {
         return;
     }
     
-    container.innerHTML = intents.map(intent => `
+    container.innerHTML = intents.map((intent, idx) => {
+        const actionTypeLabel = {
+            'static': 'Static Response',
+            'retrieval': 'Knowledge Base',
+            'hybrid': 'Hybrid (Template + KB)'
+        }[intent.action_type] || 'Unknown';
+        
+        const actionTypeBadge = {
+            'static': 'bg-secondary',
+            'retrieval': 'bg-primary',
+            'hybrid': 'bg-warning text-dark'
+        }[intent.action_type] || 'bg-secondary';
+        
+        const responses = intent.responses || [];
+        const responsesHtml = responses.length > 0 ? responses.map((r, i) => 
+            `<div class="mb-1 p-2 bg-light rounded">
+                <small>${escapeHtml(r)}</small>
+            </div>`
+        ).join('') : '<small class="text-muted">No responses defined</small>';
+        
+        return `
         <div class="card mb-2">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <h6>${escapeHtml(intent.name)} 
+                    <div class="flex-grow-1">
+                        <h6>
+                            ${escapeHtml(intent.name)} 
                             ${intent.auto_detected ? '<span class="badge bg-info">Auto</span>' : ''}
                             ${intent.enabled ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Disabled</span>'}
+                            <span class="badge ${actionTypeBadge}">${actionTypeLabel}</span>
                         </h6>
                         <p class="small text-muted mb-1">${escapeHtml(intent.description || '')}</p>
                         <div class="small">
@@ -525,6 +547,29 @@ function renderIntents(intents) {
                         </div>
                         <div class="small mt-1">
                             <strong>Examples:</strong> ${(intent.examples || []).length} questions
+                        </div>
+                        
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-link p-0" onclick="toggleResponses(${idx})">
+                                <i class="bi bi-chevron-down" id="responses-icon-${idx}"></i>
+                                ${responses.length} Response${responses.length !== 1 ? 's' : ''}
+                            </button>
+                        </div>
+                        
+                        <div id="responses-${idx}" style="display:none;" class="mt-2 border-top pt-2">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong class="small">Responses:</strong>
+                                <div>
+                                    ${intent.action_type === 'hybrid' ? 
+                                        `<button class="btn btn-xs btn-outline-info btn-sm me-1" onclick="previewHybrid(${intent.id})">
+                                            <i class="bi bi-eye"></i> Preview
+                                        </button>` : ''}
+                                    <button class="btn btn-xs btn-outline-primary btn-sm" onclick="editIntent(${intent.id})">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </button>
+                                </div>
+                            </div>
+                            <div>${responsesHtml}</div>
                         </div>
                     </div>
                     <div>
@@ -535,7 +580,8 @@ function renderIntents(intents) {
                 </div>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 function showCreateIntent() {
@@ -588,6 +634,124 @@ function deleteIntent(intentId) {
             loadIntents();
             showStatus('✓ Intent deleted', 'success');
             setTimeout(() => showStatus('', 'info'), 2000);
+        });
+}
+
+function toggleResponses(idx) {
+    const responsesDiv = document.getElementById(`responses-${idx}`);
+    const icon = document.getElementById(`responses-icon-${idx}`);
+    if (responsesDiv.style.display === 'none') {
+        responsesDiv.style.display = 'block';
+        icon.className = 'bi bi-chevron-up';
+    } else {
+        responsesDiv.style.display = 'none';
+        icon.className = 'bi bi-chevron-down';
+    }
+}
+
+function editIntent(intentId) {
+    const intent = allIntents.find(i => i.id === intentId);
+    if (!intent) return;
+    
+    const responses = (intent.responses || []).join('\n');
+    const newActionType = prompt(
+        `Action Type for "${intent.name}":\n\n` +
+        `Current: ${intent.action_type}\n\n` +
+        `Options:\n` +
+        `- static: Fixed response (no knowledge base)\n` +
+        `- retrieval: Search knowledge base\n` +
+        `- hybrid: Template + knowledge base (use {context} placeholder)\n\n` +
+        `Enter new action type:`,
+        intent.action_type
+    );
+    
+    if (!newActionType || !['static', 'retrieval', 'hybrid'].includes(newActionType)) {
+        if (newActionType !== null) alert('Invalid action type. Must be: static, retrieval, or hybrid');
+        return;
+    }
+    
+    const newResponses = prompt(
+        `Response templates for "${intent.name}":\n\n` +
+        `Action Type: ${newActionType}\n` +
+        `${newActionType === 'hybrid' ? 'Use {context} for knowledge base content\n' : ''}\n` +
+        `Enter one response per line:`,
+        responses
+    );
+    
+    if (newResponses === null) return;
+    
+    const responsesList = newResponses.split('\n').map(r => r.trim()).filter(r => r.length > 0);
+    
+    fetch(`/api/intents/${intentId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            action_type: newActionType,
+            responses: responsesList
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            loadIntents();
+            showStatus('✓ Intent updated!', 'success');
+            setTimeout(() => showStatus('', 'info'), 2000);
+        }
+    });
+}
+
+function previewHybrid(intentId) {
+    const intent = allIntents.find(i => i.id === intentId);
+    if (!intent || intent.action_type !== 'hybrid') return;
+    
+    showStatus('⟳ Generating preview...', 'info');
+    
+    fetch(`/api/intents/${intentId}/preview`, {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                showStatus('', 'info');
+                return;
+            }
+            
+            const previewHtml = data.previews.map((p, i) => `
+                <div class="mb-3">
+                    <strong>Template ${i+1}:</strong>
+                    <div class="p-2 bg-light rounded mb-2"><small>${escapeHtml(p.template)}</small></div>
+                    <strong>Preview:</strong>
+                    <div class="p-2 bg-white border rounded"><small>${escapeHtml(p.preview)}</small></div>
+                </div>
+            `).join('');
+            
+            const modal = `
+                <div class="modal fade" id="previewModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Hybrid Template Preview: ${escapeHtml(intent.name)}</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                ${previewHtml}
+                                <div class="alert alert-info small">
+                                    <i class="bi bi-info-circle"></i> Preview uses sample query: "${escapeHtml(data.sample_query)}"
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modal);
+            const previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
+            document.getElementById('previewModal').addEventListener('hidden.bs.modal', function () {
+                this.remove();
+            });
+            previewModal.show();
+            showStatus('', 'info');
         });
 }
 
