@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [[tool.uv.index]]
-explicit = true
+explicit = false
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 
