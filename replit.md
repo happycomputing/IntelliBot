@@ -2,55 +2,7 @@
 
 ## Overview
 
-This is a Flask-based web application that provides intelligent question-answering with a **hybrid architecture**: factual questions are answered using website-grounded retrieval (no hallucination), while conversational interactions use GPT-4o-mini for natural, helpful responses. The system crawls a specified website (default: aihub.org.za), extracts and indexes the content, and intelligently routes user messages based on intent detection to provide the most appropriate response type.
-
-## Recent Changes (October 2025)
-
-### Hardcoded Threshold Fix (Latest - Oct 9)
-- **Critical Fix**: Resolved hardcoded similarity threshold preventing hybrid actions from working
-- **Root Cause**: Retrieval engine initialized with hardcoded `0.52` at startup, ignoring config.json value of `0.45`
-- **Impact**: FAISS found good matches (score 0.4964) but filtered them out → hybrid actions returned "couldn't find anything"
-- **Solution**: 
-  - Load config.json at startup and initialize retrieval engine with correct values
-  - Updated DEFAULT_CONFIG to use 0.45
-  - Fixed clear_bot to reload config instead of using hardcoded values
-- **Result**: Hybrid actions now work correctly - "tell me about your services" returns actual content
-
-### Out-of-Scope Hallucination Fix (Oct 9)
-- **Critical Fix**: Removed GPT-powered fallback responses that hallucinated about topics outside the knowledge base
-- **Problem**: User asked "Pest" → Bot responded about "pest control" (not in knowledge base!)
-- **Solution**: Replaced with static response: "Sorry, I cannot help you with that. Anything else related to {company_name}?"
-- **Enhancement**: Added automatic contact details retrieval from FAISS for out-of-scope queries
-- **Impact**: Bot now strictly stays within indexed content, no hallucination possible
-
-### Similarity Threshold Adjustment (Oct 9)
-- **Fixed retrieval failure**: Lowered similarity threshold from 0.52 to 0.45
-- **Root cause**: FAISS was finding perfect matches (score 0.4964) but filtering them out due to overly strict threshold
-- **Impact**: Hybrid actions now work correctly - templates fill with actual content instead of "couldn't find anything" messages
-- **Verified**: Full intent-to-action flow tested and working (services_inquiry intent → hybrid action → contextual response)
-
-### Rasa-Style Action System
-- **Intent → Action Mapping**: Complete implementation of Rasa-style actions with three action types:
-  - `static`: Predefined text responses (like Rasa's `utter_*` actions)
-  - `retrieval`: FAISS-based answers from indexed documents
-  - `hybrid`: Template responses with {context} placeholders filled by FAISS retrieval
-- **Smart Default Responses**: Auto-assigns appropriate action types based on intent names (contact→hybrid, services→hybrid, pricing→hybrid, etc.)
-- **Response Templates**: Support for multiple response variations (randomly selected) and dynamic context injection
-- **ActionHandler System** (`actions.py`): Executes intent-specific actions instead of generic retrieval for all intents
-- **Database Schema Extended**: Added `action_type` and `responses` fields to Intent model
-- **PDF Upload Fixed**: Stream handling bug resolved using `file.stream.seek(0)` to prevent "I/O operation on closed file" errors
-
-### Bot Intelligence Panel
-- **Auto-Intent Detection**: Analyzes indexed content using GPT-4o-mini to suggest domain-specific intents (company_info, services, contact, products, etc.)
-- **Intent Management UI**: Modal popup panel with tabbed interface (Conversations, Intents, Training)
-- **Custom Intent System**: Create/edit/delete intents with keyword patterns and example questions
-- **Hybrid Intent Routing**: Pattern-based matching (custom intents) → OpenAI fallback for unknown intents
-- **Rasa Training Export**: Generate Rasa-format YAML from intents and examples for external training
-- **Conversation Analytics**: Enhanced view with search, filtering, and feedback visualization
-
-### Default Configuration
-- Default website changed to: **www.officems.co.za** (5 pages max)
-- Clear Bot now wipes: documents, index, conversations, intents, and resets configuration to defaults
+This Flask-based web application provides intelligent question-answering using a hybrid approach. Factual questions are answered by retrieving information from a website (default: aihub.org.za), while conversational interactions are handled by GPT-4o-mini for natural and helpful responses. The system crawls a specified website, extracts and indexes its content, and routes user messages based on intent to deliver the most appropriate response type. The project aims to provide a robust, hallucination-free AI chatbot grounded in specific knowledge bases, offering market potential for businesses needing reliable, domain-specific AI assistance.
 
 ## User Preferences
 
@@ -63,202 +15,49 @@ Preferred communication style: Simple, everyday language.
 
 ### Frontend Architecture
 
-**Problem**: Need an interactive web interface for configuration, crawling, indexing, and chatting.
-
-**Solution**: Single-page application using vanilla JavaScript with Socket.IO for real-time communication, Bootstrap 5 for UI components, and server-sent events for progress updates.
-
-**Key Design Decisions**:
-- Real-time updates via WebSockets (Socket.IO) for crawling/indexing progress and chat responses
-- RESTful API endpoints for configuration management
-- Bootstrap framework for responsive, professional UI without custom CSS complexity
-- Separated concerns: configuration panel, action buttons, chat interface, conversation history, and status display
-- Conversation history with feedback capability for iterative improvement
-- Danger Zone with Clear Bot functionality to reset all data
-
-**UI Components**:
-1. **Configuration Panel**: URL, max pages, chunk size, overlap, similarity threshold, top-k settings
-2. **Knowledge Base Management**: 
-   - Document upload (markdown/PDF)
-   - Single "Index Knowledge Base" button (combines clearing, crawling, document processing, and indexing)
-   - Real-time progress indicators with status updates
-3. **Chat Interface**: 
-   - Real-time Q&A with optional source citations
-   - "Show references" toggle to control source visibility
-   - Confidence scores
-4. **Statistics Dashboard**: Displays raw documents, chunks, indexed status, and configured URL
-5. **Danger Zone**: Clear Bot button to wipe all data and reset to defaults
-6. **Conversation History**: View past conversations and add feedback for training/improvement
-7. **About Section**: System capabilities and technology stack
-
-**Pros**: Simple to maintain, no build process required, real-time feedback, conversation tracking
-**Cons**: Less structured than modern frameworks, limited state management
+The frontend is a single-page application built with vanilla JavaScript, Bootstrap 5, and Socket.IO for real-time communication. Key components include a configuration panel, knowledge base management (combining crawling, document processing, and indexing), a real-time chat interface with optional source citations, a statistics dashboard, a "Danger Zone" for data reset, and a conversation history with feedback capabilities. This design prioritizes real-time updates and ease of maintenance.
 
 ### Backend Architecture
 
-**Problem**: Need to orchestrate web crawling, content indexing, and hybrid question-answering with real-time updates.
+The backend is a Flask application utilizing Socket.IO for bidirectional communication. It orchestrates web crawling, content indexing, and hybrid Q&A.
 
-**Solution**: Flask web framework with Socket.IO for bidirectional communication, modular tool architecture for crawling and indexing, and OpenAI integration for conversational AI.
+**Core Components:**
+-   **Web Crawling**: Uses Trafilatura for robust article extraction and a BFS-based crawler for content acquisition, storing raw text as JSON.
+-   **Document Processing**: Extracts text from markdown and PDF files, saving them with `uploaded://` URL prefixes.
+-   **Content Indexing**: Chunks documents and uses OpenAI embeddings (text-embedding-3-small) with numpy-based cosine similarity for semantic search.
+-   **Retrieval Engine**: Provides fast, configurable semantic search over indexed content, formatting answers with source citations.
+-   **OpenAI Service**: Employs GPT-4o-mini for intent detection (greeting, factual_question, chitchat, out_of_scope) and generating conversational responses, ensuring factual queries are handled by the retrieval engine.
+-   **Hybrid Chat Handler**: Routes messages based on detected intent to the appropriate response mechanism (GPT-4o-mini for conversational, retrieval engine for factual).
+-   **Rasa-Style Action System**: Implements `static`, `retrieval`, and `hybrid` action types mapped to intents, allowing for dynamic contextual responses using templates.
+-   **Bot Intelligence Panel**: A UI for managing intents, providing custom intent creation, and leveraging GPT-4o-mini for auto-intent detection.
 
-**Core Components**:
-
-1. **Web Crawling** (`tools/crawl_site.py`)
-   - Uses Trafilatura for robust article extraction from HTML
-   - BFS-based crawler with URL normalization and deduplication
-   - Respects same-origin policy (only crawls specified domain)
-   - Stores raw extracted text as JSON documents with URL metadata
-   - Configurable max pages and timeout settings
-
-2. **Document Processing** (`tools/process_docs.py`)
-   - Extracts text from uploaded markdown files (UTF-8 decoding)
-   - Extracts text from PDF files using PyPDF2
-   - Saves processed documents with uploaded:// URL prefix
-   - Supports batch processing of multiple files
-
-3. **Content Indexing** (`tools/index_kb.py`)
-   - Chunks documents with configurable size and overlap for context preservation
-   - Uses sentence-transformers (all-MiniLM-L6-v2 model) for semantic embeddings
-   - FAISS IndexFlatIP for cosine similarity search (normalized embeddings)
-   - Stores embeddings, metadata, and FAISS index for fast retrieval
-
-4. **Retrieval Engine** (`retrieval_engine.py`)
-   - Lazy-loading pattern for FAISS index and embedding model
-   - Configurable similarity threshold and top-k results
-   - Formats answers with source citations
-   - Deduplicates results from the same URL
-
-5. **OpenAI Service** (`openai_service.py`)
-   - Intent detection using GPT-4o-mini with JSON structured output
-   - Classifies messages as: greeting, factual_question, chitchat, out_of_scope
-   - Generates friendly greetings with dynamic KB statistics
-   - Creates helpful fallback responses for non-factual queries
-   - All responses redirect users back to asking about indexed content
-
-6. **Hybrid Chat Handler** (`app.py`)
-   - Detects intent of incoming messages
-   - Routes to appropriate handler:
-     - Greetings → GPT-4o-mini (contextual welcome)
-     - Factual questions → FAISS retrieval (grounded answers)
-     - Chitchat/Out-of-scope → GPT-4o-mini (helpful redirection)
-   - Logs all conversations to PostgreSQL for training and improvement
-
-7. **Combined Indexing Workflow** (`/api/index_all`)
-   - Clears previous knowledge base (raw docs and index)
-   - Crawls website if URL provided
-   - Processes uploaded documents (markdown/PDF)
-   - Indexes everything together with progress updates
-   - Single endpoint replaces separate crawl/index operations
-
-**Threading Model**: Background threads for long-running crawl and index operations to prevent blocking the main Flask thread, with Socket.IO for progress updates.
-
-**Pros**: Hybrid approach balances grounded answers with natural conversation, local FAISS for factual queries (no hallucination), modular design, configurable
-**Cons**: Single-server architecture, no distributed crawling, requires OpenAI API key for conversational features
+Long-running operations like crawling and indexing run in background threads, with progress updates pushed via Socket.IO.
 
 ### Data Storage Solutions
 
-**Problem**: Need to store raw crawled content, vector embeddings, configuration, and conversation history.
-
-**Solution**: Hybrid approach with file-based storage for content/embeddings and PostgreSQL for conversation logging.
-
-**Storage Structure**:
-```
-kb/
-  raw/          # Crawled content as JSON (hash-based filenames)
-  index/        # FAISS index, embeddings.npy, meta.json
-config.json     # Application configuration
-PostgreSQL      # Conversation history with feedback
-```
-
-**File Storage Rationale**: 
-- No database overhead for simple read-heavy workload (crawled content)
-- FAISS native binary format for efficient index loading
-- JSON for human-readable metadata and configuration
-- SHA-1 hashed filenames prevent URL encoding issues
-
-**Database Storage (PostgreSQL)**:
-- Stores conversation history (question, answer, sources, similarity_scores, timestamp, feedback)
-- Enables conversation logging for training and improvement
-- User feedback on bot responses
-- Flask-SQLAlchemy ORM with connection pooling
-- Graceful degradation: app continues to work for chat even if database is unavailable
-
-**Pros**: Zero-config files for core features, ACID compliance for conversations, version-controllable content
-**Cons**: Requires PostgreSQL for conversation logging (optional feature)
+A hybrid storage approach is used:
+-   **File-based storage**: `kb/raw` for crawled content, `kb/index` for embeddings (numpy arrays) and metadata, and `config.json` for application settings. This leverages simple file I/O for efficient content and index management.
+-   **PostgreSQL**: Stores conversation history (question, answer, sources, feedback) via Flask-SQLAlchemy, enabling conversation logging and feedback for improvement.
 
 ### Embedding and Search Architecture
 
-**Problem**: Need fast semantic search over potentially thousands of text chunks.
-
-**Solution**: Sentence transformers with FAISS vector database.
-
-**Technical Choices**:
-
-1. **Embedding Model**: sentence-transformers/all-MiniLM-L6-v2
-   - 384-dimensional embeddings
-   - Good balance of speed and quality for semantic search
-   - Runs locally without external API calls
-   - Optimized for semantic similarity tasks
-
-2. **Vector Index**: FAISS IndexFlatIP (Inner Product)
-   - Uses normalized embeddings for cosine similarity
-   - Exact search (no approximation)
-   - Simple, deterministic results
-
-**Chunking Strategy**:
-- Default 900 characters per chunk with 150 character overlap
-- Overlap preserves context across chunk boundaries
-- Configurable to tune for different content types
-
-**Similarity Threshold**: 0.52 default to filter low-relevance results
-
-**Alternatives Considered**: 
-- OpenAI embeddings (rejected: requires API key, costs, external dependency)
-- Approximate search (ANN) with FAISS IVF indices (rejected: unnecessary complexity for expected scale)
-
-**Pros**: Fast, local, deterministic, no API costs
-**Cons**: Fixed model (no fine-tuning), exact search scales linearly
+The system uses OpenAI's `text-embedding-3-small` model for generating 1536-dimensional semantic embeddings. Search is performed using numpy-based cosine similarity, replacing FAISS for reduced dependencies. Content is chunked (default 900 characters with 150 character overlap) to preserve context. A similarity threshold of 0.40 is used to filter results.
 
 ## External Dependencies
 
 ### Python Libraries
 
-**Web Framework**:
-- `Flask`: Core web application framework
-- `flask-socketio`: WebSocket support for real-time updates
-- `flask-cors`: CORS handling for potential frontend separation
-- `flask-sqlalchemy`: PostgreSQL ORM for conversation logging
-
-**Web Crawling**:
-- `requests`: HTTP client for fetching web pages
-- `beautifulsoup4`: HTML parsing fallback
-- `trafilatura`: Primary content extraction (article-focused)
-
-**Machine Learning & Search**:
-- `sentence-transformers`: Semantic embedding generation (all-MiniLM-L6-v2)
-- `faiss-cpu`: Vector similarity search and indexing
-- `numpy`: Numerical operations and array handling
-- `openai`: OpenAI API client for GPT-4o-mini conversational AI
-
-**Database**:
-- `psycopg2`: PostgreSQL database adapter
-
-**Configuration**:
-- Environment variables: `SESSION_SECRET`, `DATABASE_URL`, `OPENAI_API_KEY`
+-   **Web Framework**: `Flask`, `flask-socketio`, `flask-cors`, `flask-sqlalchemy`
+-   **Web Crawling**: `requests`, `beautifulsoup4`, `trafilatura`
+-   **Machine Learning & Search**: `numpy`, `openai`
+-   **Database**: `psycopg2`
 
 ### External Services
 
-**OpenAI API**: 
-- Used for conversational interactions only (greetings, chitchat, out-of-scope responses)
-- Model: GPT-4o-mini
-- Intent detection with JSON structured output
-- Factual Q&A still uses local FAISS (no external API for factual answers)
-
-**PostgreSQL Database**:
-- Stores conversation history with feedback for training
-- Graceful degradation: chat works even if database is unavailable
+-   **OpenAI API**: Used for conversational interactions (GPT-4o-mini), intent detection, and generating non-factual responses.
+-   **PostgreSQL Database**: Stores conversation history and user feedback.
 
 ### Content Source
 
-- Target website: Configurable (default: https://www.officems.co.za/)
-- Default max pages: 5
-- Respects robots.txt conventions via user-agent header
-- Single-domain crawling (no cross-site following)
+-   **Target website**: Configurable (default: `https://www.officems.co.za/`).
+-   **Documents**: Markdown and PDF file uploads.
