@@ -63,7 +63,7 @@ if os.path.exists(CONFIG_FILE):
         print(f"Warning: Could not load config.json: {e}")
 
 retrieval = RetrievalEngine(
-    similarity_threshold=startup_config.get('similarity_threshold', 0.45), 
+    similarity_threshold=startup_config.get('similarity_threshold', 0.40), 
     top_k=startup_config.get('top_k', 4)
 )
 
@@ -91,7 +91,7 @@ def update_config():
     config = request.json
     save_config(config)
     # Update retrieval engine settings immediately
-    retrieval.similarity_threshold = config.get('similarity_threshold', 0.45)
+    retrieval.similarity_threshold = config.get('similarity_threshold', 0.40)
     retrieval.top_k = config.get('top_k', 4)
     return jsonify({"status": "success", "config": config})
 
@@ -317,7 +317,7 @@ def clear_bot():
         
         # Reset retrieval engine with reloaded config
         retrieval._loaded = False
-        retrieval.similarity_threshold = reset_config.get('similarity_threshold', 0.45)
+        retrieval.similarity_threshold = reset_config.get('similarity_threshold', 0.40)
         retrieval.top_k = reset_config.get('top_k', 4)
         
         return jsonify({
