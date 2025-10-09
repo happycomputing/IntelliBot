@@ -73,30 +73,56 @@ def generate_greeting(stats=None):
         return "Hello! I'm here to answer questions based only on the knowledge available to me. I don't make up information. What would you like to know?"
 
 
-def generate_fallback_response(message, context=""):
+def get_company_name_from_url(url):
+    """Extract a friendly company name from the configured URL."""
+    if not url:
+        return "our company"
+    
+    # Extract domain and make it friendly
+    domain = url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+    
+    # Try to make it readable (e.g., "officems.co.za" -> "OfficeMS")
+    name_part = domain.split('.')[0]
+    if name_part:
+        # Capitalize first letter or use as-is if it looks like a brand name
+        return name_part.title() if name_part.islower() else name_part
+    
+    return "our company"
+
+
+def get_contact_details(retrieval_engine):
     """
-    Generate a helpful response for out-of-scope or chitchat messages.
+    Retrieve contact information from the indexed documents.
+    Returns formatted contact details or empty string if not found.
     """
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful AI assistant for a knowledge-base chatbot. "
-                    "The user's message is outside the scope of factual questions. "
-                    "Respond politely and:\n"
-                    "1. If it's chitchat or casual conversation, engage briefly but remind them of your primary purpose\n"
-                    "2. If it's a request you can't fulfill (write code, perform actions), politely decline and explain your limitations\n"
-                    "3. Always redirect them back to asking questions about the knowledge available to you\n\n"
-                    f"Never use technical terms like 'crawling', 'indexing', or 'database'. Context: {context if context else 'No knowledge available yet.'}"
-                },
-                {"role": "user", "content": message}
-            ],
-            max_completion_tokens=200
-        )
+        # Query for contact information
+        contact_query = "contact information email phone address"
+        result = retrieval_engine.get_answer(contact_query)
         
-        return response.choices[0].message.content
+        if result.get('answer') and 'couldn\'t find' not in result.get('answer', ''):
+            # Extract just the contact info, clean it up
+            answer = result.get('answer', '')
+            sources = result.get('sources', [])
+            
+            # Format nicely
+            contact_text = f"\n\nYou can reach us:\n{answer}"
+            return contact_text
+        
+        return ""
     except Exception as e:
-        print(f"Fallback response error: {e}")
-        return "I can only answer questions based on the indexed website content. Please ask me something about the knowledge base!"
+        print(f"Error retrieving contact details: {e}")
+        return ""
+
+
+def generate_fallback_response(company_name, contact_details=""):
+    """
+    Generate a static, friendly out-of-scope response.
+    No GPT - strictly static to prevent hallucination.
+    """
+    response = f"Sorry, I cannot help you with that. Anything else related to {company_name}?"
+    
+    if contact_details:
+        response += contact_details
+    
+    return response
