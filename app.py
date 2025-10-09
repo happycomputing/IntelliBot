@@ -49,7 +49,7 @@ DEFAULT_CONFIG = {
     "max_pages": 5,
     "chunk_size": 900,
     "chunk_overlap": 150,
-    "similarity_threshold": 0.45,
+    "similarity_threshold": 0.40,
     "top_k": 4
 }
 
