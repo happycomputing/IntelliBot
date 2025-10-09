@@ -12,14 +12,14 @@ venv/
 env/
 .venv
 
-# Knowledge base data
-kb/raw/*.json
-kb/index/*.npy
-kb/index/*.index
-kb/index/*.json
+# Knowledge base data - INCLUDED for deployment
+# kb/raw/*.json
+# kb/index/*.npy
+# kb/index/*.index
+# kb/index/*.json
 
-# Config
-config.json
+# Config - INCLUDED for deployment
+# config.json
 
 # IDE
 .vscode/
