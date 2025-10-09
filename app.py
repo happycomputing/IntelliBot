@@ -310,6 +310,7 @@ def clear_bot():
 def handle_chat_message(data):
     from openai_service import detect_intent, generate_greeting, generate_fallback_response
     from tools.detect_intents import match_intent_pattern
+    from actions import ActionHandler
     
     query = data.get('message', '')
     
@@ -326,10 +327,9 @@ def handle_chat_message(data):
         except Exception as e:
             print(f"Error checking custom intents: {e}")
     
-    # Step 2: If custom intent matched, use retrieval with context
+    # Step 2: If custom intent matched, execute its action
     if matched_custom_intent:
-        result = retrieval.get_answer(query)
-        result['intent'] = matched_custom_intent.name
+        result = ActionHandler.execute_action(matched_custom_intent, query, query, retrieval)
         result['custom_intent'] = True
     else:
         # Step 3: Fall back to OpenAI intent detection
@@ -418,15 +418,24 @@ def create_intent():
     if not DB_AVAILABLE:
         return jsonify({"error": "Database unavailable"}), 503
     
+    from actions import ActionHandler
+    
     data = request.json
     try:
+        defaults = ActionHandler.get_default_responses_for_intent(
+            data['name'], 
+            data.get('description', '')
+        )
+        
         intent = Intent(
             name=data['name'],
             description=data.get('description', ''),
             patterns=data.get('patterns', []),
             examples=data.get('examples', []),
             auto_detected=data.get('auto_detected', False),
-            enabled=data.get('enabled', True)
+            enabled=data.get('enabled', True),
+            action_type=data.get('action_type', defaults['action_type']),
+            responses=data.get('responses', defaults['responses'])
         )
         db.session.add(intent)
         db.session.commit()
@@ -457,6 +466,10 @@ def update_intent(intent_id):
             intent.examples = data['examples']
         if 'enabled' in data:
             intent.enabled = data['enabled']
+        if 'action_type' in data:
+            intent.action_type = data['action_type']
+        if 'responses' in data:
+            intent.responses = data['responses']
         
         db.session.commit()
         return jsonify(intent.to_dict())

@@ -39,6 +39,8 @@ class Intent(db.Model):
     examples = db.Column(db.JSON)
     auto_detected = db.Column(db.Boolean, default=False)
     enabled = db.Column(db.Boolean, default=True)
+    action_type = db.Column(db.String(50), default='retrieval')
+    responses = db.Column(db.JSON)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -51,6 +53,8 @@ class Intent(db.Model):
             'examples': self.examples or [],
             'auto_detected': self.auto_detected,
             'enabled': self.enabled,
+            'action_type': self.action_type or 'retrieval',
+            'responses': self.responses or [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
