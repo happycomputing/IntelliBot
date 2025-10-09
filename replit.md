@@ -6,7 +6,14 @@ This is a Flask-based web application that provides intelligent question-answeri
 
 ## Recent Changes (October 2025)
 
-### Similarity Threshold Fix (Latest - Oct 9)
+### Out-of-Scope Hallucination Fix (Latest - Oct 9)
+- **Critical Fix**: Removed GPT-powered fallback responses that hallucinated about topics outside the knowledge base
+- **Problem**: User asked "Pest" → Bot responded about "pest control" (not in knowledge base!)
+- **Solution**: Replaced with static response: "Sorry, I cannot help you with that. Anything else related to {company_name}?"
+- **Enhancement**: Added automatic contact details retrieval from FAISS for out-of-scope queries
+- **Impact**: Bot now strictly stays within indexed content, no hallucination possible
+
+### Similarity Threshold Fix (Oct 9)
 - **Fixed retrieval failure**: Lowered similarity threshold from 0.52 to 0.45
 - **Root cause**: FAISS was finding perfect matches (score 0.4964) but filtering them out due to overly strict threshold
 - **Impact**: Hybrid actions now work correctly - templates fill with actual content instead of "couldn't find anything" messages
