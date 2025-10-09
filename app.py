@@ -362,11 +362,14 @@ def handle_chat_message(data):
                 'intent': 'greeting'
             }
         elif intent in ["chitchat", "out_of_scope"]:
-            # Generate helpful fallback response
-            raw_count = len(glob.glob("kb/raw/*.json"))
+            # Friendly decline with contact details - NO GPT to prevent hallucination
+            from openai_service import get_company_name_from_url, get_contact_details
+            
             config = load_config()
-            context = f"Indexed content: {raw_count} documents from {config.get('url', 'website')}"
-            answer = generate_fallback_response(query, context)
+            company_name = get_company_name_from_url(config.get('url', ''))
+            contact_details = get_contact_details(retrieval)
+            answer = generate_fallback_response(company_name, contact_details)
+            
             result = {
                 'answer': answer,
                 'sources': [],

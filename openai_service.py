@@ -96,16 +96,15 @@ def get_contact_details(retrieval_engine):
     Returns formatted contact details or empty string if not found.
     """
     try:
-        # Query for contact information
-        contact_query = "contact information email phone address"
+        # Use simple query that matches well with FAISS
+        contact_query = "contact us"
         result = retrieval_engine.get_answer(contact_query)
         
         if result.get('answer') and 'couldn\'t find' not in result.get('answer', ''):
             # Extract just the contact info, clean it up
             answer = result.get('answer', '')
-            sources = result.get('sources', [])
             
-            # Format nicely
+            # Format nicely - just the essential contact info
             contact_text = f"\n\nYou can reach us:\n{answer}"
             return contact_text
         
