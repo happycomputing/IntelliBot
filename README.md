@@ -37,6 +37,22 @@ A Flask-based intelligent chatbot that combines OpenAI GPT-4o-mini for conversat
 
 ## Quick Start
 
+### LXC Development Container
+
+Use the bundled helper to spin up an Ubuntu Server 24.04 LTS container configured for IntelliBot development:
+
+```bash
+./scripts/setup_intellibot_lxc.sh
+```
+
+Key options can be overridden at runtime, for example:
+
+```bash
+LXC_IMAGE=ubuntu:24.04 CONTAINER_PORT=5000 HOST_PROJECT_PATH=$PWD ./scripts/setup_intellibot_lxc.sh
+```
+
+The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and automatically falls back to the Ubuntu Images remote (`images:ubuntu/24.04/cloud`) if the primary alias is unavailable. See `scripts/setup_intellibot_lxc.sh` for additional knobs such as mounting a host workspace, forwarding ports, and optional PostgreSQL installation.
+
 ### Prerequisites
 - Python 3.11+
 - PostgreSQL database
