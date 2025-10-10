@@ -44,5 +44,5 @@ localPort = 37379
 externalPort = 3002
 
 [deployment]
-deploymentTarget = "cloudrun"
-run = ["python", "app.py"]
+deploymentTarget = "vm"
+run = ["gunicorn", "--worker-class", "eventlet", "-w", "1", "app:app", "--bind", "0.0.0.0:5000", "--timeout", "120"]
