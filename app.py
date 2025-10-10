@@ -145,7 +145,7 @@ def get_stats():
 @app.route('/api/crawl', methods=['POST'])
 def start_crawl():
     data = request.json
-    url = data.get('url', 'https://aihub.org.za/')
+    url = data.get('url', 'https://www.officems.co.za/')
     max_pages = data.get('max_pages', 500)
     
     def crawl_progress(status_type, message):

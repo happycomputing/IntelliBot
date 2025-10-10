@@ -1,7 +1,7 @@
 [project]
-name = "repl-nix-workspace"
+name = "intellibot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Hybrid AI chatbot combining GPT-4o-mini with vector retrieval for knowledge-grounded responses"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4",

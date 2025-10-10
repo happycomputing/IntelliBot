@@ -1,8 +1,8 @@
-# AI Hub Chatbot - Hybrid Website-Grounded Q&A System
+# IntelliBot - Hybrid Website-Grounded Q&A System
 
 ## Overview
 
-This Flask-based web application provides intelligent question-answering using a hybrid approach. Factual questions are answered by retrieving information from a website (default: aihub.org.za), while conversational interactions are handled by GPT-4o-mini for natural and helpful responses. The system crawls a specified website, extracts and indexes its content, and routes user messages based on intent to deliver the most appropriate response type. The project aims to provide a robust, hallucination-free AI chatbot grounded in specific knowledge bases, offering market potential for businesses needing reliable, domain-specific AI assistance.
+This Flask-based web application provides intelligent question-answering using a hybrid approach. Factual questions are answered by retrieving information from a website (default: officems.co.za), while conversational interactions are handled by GPT-4o-mini for natural and helpful responses. The system crawls a specified website, extracts and indexes its content, and routes user messages based on intent to deliver the most appropriate response type. The project aims to provide a robust, hallucination-free AI chatbot grounded in specific knowledge bases, offering market potential for businesses needing reliable, domain-specific AI assistance.
 
 ## User Preferences
 

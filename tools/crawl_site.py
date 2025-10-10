@@ -8,7 +8,7 @@ def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None):
     """Crawl a website and extract clean text from pages"""
     allowed_host = urllib.parse.urlparse(start_url).netloc
     out_dir = "kb/raw"
-    headers = {"User-Agent": "AIHubCrawler/1.0"}
+    headers = {"User-Agent": "IntelliBot/1.0"}
     
     def normalize_url(url, base):
         u = urllib.parse.urljoin(base, url.split("#")[0])
@@ -89,6 +89,6 @@ def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None):
     return {"pages": pages, "urls": crawled_urls}
 
 if __name__ == "__main__":
-    start_url = sys.argv[1] if len(sys.argv) > 1 else "https://aihub.org.za/"
+    start_url = sys.argv[1] if len(sys.argv) > 1 else "https://www.officems.co.za/"
     max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 500
     crawl_site(start_url, max_pages)
