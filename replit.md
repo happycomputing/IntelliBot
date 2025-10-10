@@ -43,6 +43,16 @@ A hybrid storage approach is used:
 
 The system uses OpenAI's `text-embedding-3-small` model for generating 1536-dimensional semantic embeddings. Search is performed using numpy-based cosine similarity, replacing FAISS for reduced dependencies. Content is chunked (default 900 characters with 150 character overlap) to preserve context. A similarity threshold of 0.40 is used to filter results.
 
+### Deployment Configuration
+
+The application is optimized for production deployment with the following architecture:
+
+-   **Lazy-Loaded Components**: The retrieval engine initializes on first use rather than at startup, ensuring fast health check responses
+-   **Non-Blocking Initialization**: Database setup runs in a background thread to prevent blocking the main application startup
+-   **Health Check Endpoint**: Dedicated `/health` endpoint provides instant health status without expensive operations
+-   **Production Server**: Uses Gunicorn with Eventlet worker for Socket.IO support, configured with 60-second timeout and preload flag for optimal startup performance
+-   **Deployment Type**: VM (always-running) deployment for reliable real-time chat functionality
+
 ## External Dependencies
 
 ### Python Libraries
