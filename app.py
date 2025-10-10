@@ -34,14 +34,20 @@ db.init_app(app)
 # Database availability flag
 DB_AVAILABLE = False
 
-with app.app_context():
-    try:
-        db.create_all()
-        DB_AVAILABLE = True
-        print("Database initialized successfully")
-    except Exception as e:
-        print(f"❌ Database initialization error: {e}")
-        print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
+def init_database():
+    """Initialize database in background to avoid blocking startup"""
+    global DB_AVAILABLE
+    with app.app_context():
+        try:
+            db.create_all()
+            DB_AVAILABLE = True
+            print("Database initialized successfully")
+        except Exception as e:
+            print(f"❌ Database initialization error: {e}")
+            print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
+
+# Start database initialization in background
+threading.Thread(target=init_database, daemon=True).start()
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
@@ -53,19 +59,26 @@ DEFAULT_CONFIG = {
     "top_k": 4
 }
 
-# Load config and initialize retrieval engine with correct settings
-startup_config = DEFAULT_CONFIG.copy()
-if os.path.exists(CONFIG_FILE):
-    try:
-        with open(CONFIG_FILE, 'r') as f:
-            startup_config = json.load(f)
-    except Exception as e:
-        print(f"Warning: Could not load config.json: {e}")
+# Lazy-loaded retrieval engine
+_retrieval = None
 
-retrieval = RetrievalEngine(
-    similarity_threshold=startup_config.get('similarity_threshold', 0.40), 
-    top_k=startup_config.get('top_k', 4)
-)
+def get_retrieval():
+    """Get or initialize retrieval engine (lazy loading)"""
+    global _retrieval
+    if _retrieval is None:
+        startup_config = DEFAULT_CONFIG.copy()
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    startup_config = json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not load config.json: {e}")
+        
+        _retrieval = RetrievalEngine(
+            similarity_threshold=startup_config.get('similarity_threshold', 0.40), 
+            top_k=startup_config.get('top_k', 4)
+        )
+    return _retrieval
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
