@@ -36,10 +36,6 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 32901
-externalPort = 3003
-
-[[ports]]
 localPort = 34883
 externalPort = 3000
 
@@ -48,9 +44,13 @@ localPort = 37379
 externalPort = 3002
 
 [[ports]]
+localPort = 38657
+externalPort = 3003
+
+[[ports]]
 localPort = 45987
 externalPort = 3001
 
 [deployment]
 deploymentTarget = "vm"
-run = ["gunicorn", "--worker-class", "eventlet", "-w", "1", "app:app", "--bind", "0.0.0.0:5000", "--timeout", "60", "--preload"]
+run = ["gunicorn", "--worker-class", "eventlet", "-w", "1", "app:app", "--bind", "0.0.0.0:5000", "--timeout", "60"]
