@@ -5,10 +5,12 @@ description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4",
+    "eventlet>=0.40.3",
     "flask",
     "flask-cors",
     "flask-socketio",
     "flask-sqlalchemy",
+    "gunicorn>=23.0.0",
     "numpy",
     "openai",
     "psycopg2-binary",
