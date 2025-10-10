@@ -368,7 +368,7 @@ def handle_chat_message(data):
     
     # Step 2: If custom intent matched, execute its action
     if matched_custom_intent:
-        result = ActionHandler.execute_action(matched_custom_intent, query, query, retrieval)
+        result = ActionHandler.execute_action(matched_custom_intent, query, query, get_retrieval())
         result['custom_intent'] = True
     else:
         # Step 3: Fall back to OpenAI intent detection
@@ -399,7 +399,7 @@ def handle_chat_message(data):
             
             config = load_config()
             company_name = get_company_name_from_url(config.get('url', ''))
-            contact_details = get_contact_details(retrieval)
+            contact_details = get_contact_details(get_retrieval())
             answer = generate_fallback_response(company_name, contact_details)
             
             result = {
