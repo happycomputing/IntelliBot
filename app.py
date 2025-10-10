@@ -104,13 +104,13 @@ def update_config():
     config = request.json
     save_config(config)
     # Update retrieval engine settings immediately
-    retrieval.similarity_threshold = config.get('similarity_threshold', 0.40)
-    retrieval.top_k = config.get('top_k', 4)
+    get_retrieval().similarity_threshold = config.get('similarity_threshold', 0.40)
+    get_retrieval().top_k = config.get('top_k', 4)
     return jsonify({"status": "success", "config": config})
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    stats = retrieval.get_stats()
+    stats = get_retrieval().get_stats()
     
     # Get raw document count and sources
     raw_files = glob.glob("kb/raw/*.json")
@@ -170,7 +170,7 @@ def start_indexing():
         try:
             socketio.emit('index_status', {'status': 'started', 'message': 'Building vector index...'})
             result = index_kb(chunk_size, chunk_overlap, progress_callback=index_progress)
-            retrieval._loaded = False
+            get_retrieval()._loaded = False
             socketio.emit('index_status', {'status': 'completed', 'result': result})
         except Exception as e:
             socketio.emit('index_status', {'status': 'error', 'message': str(e)})
@@ -238,7 +238,7 @@ def index_all():
                 progress(status_type, msg)
             
             index_result = index_kb(chunk_size, chunk_overlap, progress_callback=index_progress_cb)
-            retrieval._loaded = False
+            get_retrieval()._loaded = False
             
             progress('success', f"✓ Knowledge base ready! {index_result['total_chunks']} chunks indexed")
             socketio.emit('index_status', {'status': 'completed', 'result': index_result})
@@ -329,9 +329,9 @@ def clear_bot():
         reset_config = load_config()
         
         # Reset retrieval engine with reloaded config
-        retrieval._loaded = False
-        retrieval.similarity_threshold = reset_config.get('similarity_threshold', 0.40)
-        retrieval.top_k = reset_config.get('top_k', 4)
+        get_retrieval()._loaded = False
+        get_retrieval().similarity_threshold = reset_config.get('similarity_threshold', 0.40)
+        get_retrieval().top_k = reset_config.get('top_k', 4)
         
         return jsonify({
             "status": "success", 
@@ -373,7 +373,7 @@ def handle_chat_message(data):
         # Route based on intent
         if intent == "greeting":
             # Generate friendly greeting with bot capabilities
-            stats_data = retrieval.get_stats()
+            stats_data = get_retrieval().get_stats()
             raw_count = len(glob.glob("kb/raw/*.json"))
             config = load_config()
             stats = {
@@ -405,7 +405,7 @@ def handle_chat_message(data):
             }
         else:
             # Use retrieval for factual questions
-            result = retrieval.get_answer(query)
+            result = get_retrieval().get_answer(query)
             result['intent'] = 'factual_question'
     
     # Log conversation to database if available
@@ -548,7 +548,7 @@ def preview_intent(intent_id):
         
         sample_query = intent.examples[0] if intent.examples else "Tell me about your services"
         
-        retrieval_result = retrieval.get_answer(sample_query)
+        retrieval_result = get_retrieval().get_answer(sample_query)
         context = retrieval_result.get('answer', 'No relevant information found')
         
         previews = []
