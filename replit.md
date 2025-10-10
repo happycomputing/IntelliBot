@@ -47,11 +47,14 @@ The system uses OpenAI's `text-embedding-3-small` model for generating 1536-dime
 
 The application is optimized for production deployment with the following architecture:
 
+-   **Eventlet Initialization**: Critical requirement - `eventlet.monkey_patch()` must be called at the very beginning of app.py before ANY imports to ensure proper eventlet worker initialization
 -   **Lazy-Loaded Components**: The retrieval engine initializes on first use rather than at startup, ensuring fast health check responses
 -   **Non-Blocking Initialization**: Database setup runs in a background thread to prevent blocking the main application startup
 -   **Health Check Endpoint**: Dedicated `/health` endpoint provides instant health status without expensive operations
--   **Production Server**: Uses Gunicorn with Eventlet worker for Socket.IO support, configured with 60-second timeout and preload flag for optimal startup performance
+-   **Production Server**: Uses Gunicorn with Eventlet worker for Socket.IO support, configured with 60-second timeout (NO --preload flag to avoid eventlet initialization conflicts)
 -   **Deployment Type**: VM (always-running) deployment for reliable real-time chat functionality
+
+**Important**: The eventlet.monkey_patch() ordering requirement must be preserved to prevent deployment failures. Never add imports before this critical initialization step.
 
 ## External Dependencies
 
