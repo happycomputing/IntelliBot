@@ -90,6 +90,11 @@ def save_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
 
+@app.route('/health')
+def health():
+    """Fast health check endpoint for deployment"""
+    return jsonify({"status": "ok"}), 200
+
 @app.route('/')
 def index():
     return render_template('index.html')
