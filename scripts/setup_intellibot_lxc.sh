@@ -76,9 +76,9 @@ apt-get -y upgrade
 apt-get install -y software-properties-common build-essential git curl
 add-apt-repository -y ppa:deadsnakes/ppa
 apt-get update
-apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip libpq-dev postgresql-client
+apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip
 if [[ "${INSTALL_POSTGRES}" == "true" ]]; then
-  apt-get install -y postgresql postgresql-contrib
+  apt-get install -y libpq-dev postgresql-client postgresql postgresql-contrib
 fi
 
 PROJECT_PATH="${CONTAINER_PROJECT_PATH:-/workspace/IntelliBot}"
@@ -100,4 +100,4 @@ INNER
 trap - EXIT
 
 echo "Container '$TARGET_CONTAINER' has been provisioned."
-echo "Remember to configure OPENAI_API_KEY, DATABASE_URL, and SESSION_SECRET inside the container before running the application."
+echo "Remember to configure OPENAI_API_KEY, SESSION_SECRET, AGENT_ID/AGENT_NAME, and (optionally) LEGACY_DATABASE_URL before running the application."

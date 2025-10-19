@@ -5,6 +5,7 @@ import os
 import json
 import glob
 import shutil
+from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -12,26 +13,34 @@ from retrieval_engine import RetrievalEngine
 from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
 from tools.process_docs import process_uploaded_documents
+from agent_storage import AgentStorage
+from database_migration import migrate_postgres_to_sqlite
 from models import db, Conversation, Intent
 import threading
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
 
-# Database configuration with validation
-database_url = os.environ.get('DATABASE_URL')
-if not database_url:
-    print("WARNING: DATABASE_URL not set. Conversation logging will be disabled.")
-    database_url = 'sqlite:///fallback.db'
+storage = AgentStorage()
+legacy_database_url = os.environ.get('LEGACY_DATABASE_URL')
+if not legacy_database_url:
+    env_database_url = os.environ.get('DATABASE_URL')
+    if env_database_url and env_database_url.startswith('postgres'):
+        legacy_database_url = env_database_url
+        print(
+            'Detected legacy DATABASE_URL pointing to PostgreSQL; '
+            'migration will be attempted.'
+        )
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_DATABASE_URI'] = storage.sqlite_url
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_recycle": 300,
     "pool_pre_ping": True,
+    "connect_args": {"check_same_thread": False},
 }
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+storage.migrate_legacy_app_config(Path("config.json"))
 db.init_app(app)
 
 # Database availability flag
@@ -43,8 +52,9 @@ def init_database():
     with app.app_context():
         try:
             db.create_all()
+            migrate_postgres_to_sqlite(db, storage, legacy_database_url)
             DB_AVAILABLE = True
-            print("Database initialized successfully")
+            print(f"Database initialized successfully at {storage.sqlite_path}")
         except Exception as e:
             print(f"❌ Database initialization error: {e}")
             print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
@@ -52,7 +62,6 @@ def init_database():
 # Start database initialization in background
 threading.Thread(target=init_database, daemon=True).start()
 
-CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {}
 
 # Lazy-loaded retrieval engine
@@ -63,12 +72,10 @@ def get_retrieval():
     global _retrieval
     if _retrieval is None:
         startup_config = DEFAULT_CONFIG.copy()
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    startup_config = json.load(f)
-            except Exception as e:
-                print(f"Warning: Could not load config.json: {e}")
+        try:
+            startup_config.update(load_config())
+        except Exception as e:
+            print(f"Warning: Could not load agent app settings: {e}")
         
         _retrieval = RetrievalEngine(
             similarity_threshold=startup_config.get('similarity_threshold', 0.40), 
@@ -77,14 +84,12 @@ def get_retrieval():
     return _retrieval
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
-    return DEFAULT_CONFIG.copy()
+    config = storage.load_app_settings()
+    return config if config else DEFAULT_CONFIG.copy()
+
 
 def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
+    storage.save_app_settings(config)
 
 @app.route('/health')
 def health():
