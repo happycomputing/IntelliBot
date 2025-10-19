@@ -13,7 +13,6 @@ dependencies = [
     "gunicorn>=23.0.0",
     "numpy",
     "openai",
-    "psycopg2-binary",
     "pypdf2",
     "pyyaml",
     "requests",
