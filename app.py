@@ -53,14 +53,7 @@ def init_database():
 threading.Thread(target=init_database, daemon=True).start()
 
 CONFIG_FILE = "config.json"
-DEFAULT_CONFIG = {
-    "url": "https://www.officems.co.za/",
-    "max_pages": 5,
-    "chunk_size": 900,
-    "chunk_overlap": 150,
-    "similarity_threshold": 0.40,
-    "top_k": 4
-}
+DEFAULT_CONFIG = {}
 
 # Lazy-loaded retrieval engine
 _retrieval = None
