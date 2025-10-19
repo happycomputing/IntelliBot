@@ -14,7 +14,6 @@ from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
 from tools.process_docs import process_uploaded_documents
 from agent_storage import AgentStorage
-from database_migration import migrate_postgres_to_sqlite
 from models import db, Conversation, Intent
 import threading
 
@@ -22,15 +21,6 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
 
 storage = AgentStorage()
-legacy_database_url = os.environ.get('LEGACY_DATABASE_URL')
-if not legacy_database_url:
-    env_database_url = os.environ.get('DATABASE_URL')
-    if env_database_url and env_database_url.startswith('postgres'):
-        legacy_database_url = env_database_url
-        print(
-            'Detected legacy DATABASE_URL pointing to PostgreSQL; '
-            'migration will be attempted.'
-        )
 
 app.config['SQLALCHEMY_DATABASE_URI'] = storage.sqlite_url
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -52,7 +42,6 @@ def init_database():
     with app.app_context():
         try:
             db.create_all()
-            migrate_postgres_to_sqlite(db, storage, legacy_database_url)
             DB_AVAILABLE = True
             print(f"Database initialized successfully at {storage.sqlite_path}")
         except Exception as e:

@@ -100,4 +100,4 @@ INNER
 trap - EXIT
 
 echo "Container '$TARGET_CONTAINER' has been provisioned."
-echo "Remember to configure OPENAI_API_KEY, SESSION_SECRET, AGENT_ID/AGENT_NAME, and (optionally) LEGACY_DATABASE_URL before running the application."
+echo "Remember to configure OPENAI_API_KEY, SESSION_SECRET, and AGENT_ID/AGENT_NAME before running the application."

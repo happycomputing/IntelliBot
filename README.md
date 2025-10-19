@@ -11,7 +11,7 @@ A Flask-based intelligent chatbot that combines OpenAI GPT-4o-mini for conversat
 - **Semantic Search**: Uses OpenAI embeddings (text-embedding-3-small) with numpy-based cosine similarity
 - **Real-time Interface**: Socket.IO-powered chat with instant responses and progress updates
 - **Intent Management**: Rasa-style intent-to-action system with static, retrieval, and hybrid response types
-- **Conversation History**: PostgreSQL-backed logging with user feedback capabilities
+- **Conversation History**: SQLite-backed logging with user feedback capabilities
 
 ### Advanced Features
 - **Bot Intelligence Panel**: Manage intents with inline editing, action types, and live preview of hybrid templates
@@ -26,7 +26,7 @@ A Flask-based intelligent chatbot that combines OpenAI GPT-4o-mini for conversat
 - **Backend**: Flask + Flask-SocketIO + Eventlet
 - **AI/ML**: OpenAI (GPT-4o-mini, text-embedding-3-small)
 - **Search**: Numpy-based cosine similarity
-- **Database**: PostgreSQL for conversations, File-based for knowledge base
+- **Database**: SQLite for conversations, File-based for knowledge base
 - **Frontend**: Vanilla JavaScript, Bootstrap 5, Socket.IO
 
 ### Key Design Decisions
@@ -55,7 +55,6 @@ The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and au
 
 ### Prerequisites
 - Python 3.11+
-- PostgreSQL database
 - OpenAI API key
 
 ### Installation
@@ -72,7 +71,6 @@ The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and au
    export SESSION_SECRET="your-secret-key"
    export AGENT_ID="your-agent-id"           # used for SQLite storage under /agents/<agent_id>/data
    export AGENT_NAME="your-agent-name"       # used for configuration files under /agents/<agent_name>/config
-   export LEGACY_DATABASE_URL="postgresql://user:password@host:port/dbname"  # optional, for one-time migration
    ```
 
 3. **Install dependencies**
@@ -135,7 +133,6 @@ The app is pre-configured for Replit VM deployment:
    - `OPENAI_API_KEY`
    - `SESSION_SECRET`
    - `AGENT_ID` / `AGENT_NAME`
-   - `LEGACY_DATABASE_URL` (optional; provide only when migrating existing PostgreSQL data)
 
 2. **Click Deploy** in Replit
 3. **Select "Reserved VM"** deployment type
@@ -165,7 +162,6 @@ gunicorn --worker-class eventlet -w 1 --worker-connections 1000 app:app --bind 0
 | `SESSION_SECRET` | Flask session secret key | `dev-secret-key` |
 | `AGENT_ID` | Identifier used for SQLite storage under `/agents/<agent_id>/data/chat.sqlite` | `default` |
 | `AGENT_NAME` | Folder name used for configuration files under `/agents/<agent_name>/config/` | Matches `AGENT_ID` |
-| `LEGACY_DATABASE_URL` | PostgreSQL connection string used once to migrate historical data | _unset_ |
 
 ### Application Settings (`/agents/<agent_name>/config/`)
 
@@ -191,7 +187,6 @@ Application configuration is persisted as structured files in `/agents/<agent_na
 .
 ├── agent_storage.py      # Agent-scoped configuration helpers
 ├── app.py                # Main Flask application with eventlet
-├── database_migration.py # Legacy PostgreSQL → SQLite migration utilities
 ├── models.py             # SQLAlchemy database models
 ├── retrieval_engine.py   # Vector search and retrieval
 ├── openai_service.py     # OpenAI API integration
@@ -254,7 +249,6 @@ Application configuration is persisted as structured files in `/agents/<agent_na
 - Ensure eventlet.monkey_patch() is at top of app.py
 - Verify no blocking operations in startup code
 - Confirm `/agents/<agent_id>/data/` is writable and contains `chat.sqlite`
-- If migrating, double-check `LEGACY_DATABASE_URL` is reachable
 
 **Q: Slow response times**
 - Reduce chunk_size for faster search
