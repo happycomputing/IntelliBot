@@ -1,6 +1,35 @@
+import json
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.types import TypeDecorator, Text
+
+
+class JSONType(TypeDecorator):
+    """SQLite-compatible JSON storage with optional native support."""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import JSONB
+
+            return dialect.type_descriptor(JSONB())
+        return super().load_dialect_impl(dialect)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return value
 
 class Base(DeclarativeBase):
     pass
@@ -13,8 +42,8 @@ class Conversation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     question = db.Column(db.Text, nullable=False)
     answer = db.Column(db.Text, nullable=False)
-    sources = db.Column(db.JSON)
-    similarity_scores = db.Column(db.JSON)
+    sources = db.Column(JSONType)
+    similarity_scores = db.Column(JSONType)
     feedback = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
@@ -35,12 +64,12 @@ class Intent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
     description = db.Column(db.Text)
-    patterns = db.Column(db.JSON)
-    examples = db.Column(db.JSON)
+    patterns = db.Column(JSONType)
+    examples = db.Column(JSONType)
     auto_detected = db.Column(db.Boolean, default=False)
     enabled = db.Column(db.Boolean, default=True)
     action_type = db.Column(db.String(50), default='retrieval')
-    responses = db.Column(db.JSON)
+    responses = db.Column(JSONType)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

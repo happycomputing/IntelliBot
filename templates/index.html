@@ -10,8 +10,19 @@
 </head>
 <body>
     <nav class="navbar navbar-dark bg-primary">
-        <div class="container-fluid">
+        <div class="container-fluid align-items-center">
             <span class="navbar-brand mb-0 h1"><i class="bi bi-robot"></i> IntelliBot</span>
+            <form id="agent-form" class="d-flex align-items-center ms-auto me-3 gap-2 agent-form">
+                <label class="form-label text-white small mb-0" for="agent-select">
+                    <i class="bi bi-people"></i> Agent
+                </label>
+                <select class="form-select form-select-sm" id="agent-select" disabled>
+                    <option value="">Loading agents...</option>
+                </select>
+                <button type="button" class="btn btn-outline-light btn-sm" id="new-agent-btn">
+                    <i class="bi bi-plus-circle"></i> New
+                </button>
+            </form>
             <span class="badge bg-light text-dark" id="status-badge">Not Indexed</span>
         </div>
     </nav>
@@ -199,6 +210,34 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Create Agent Modal -->
+    <div class="modal fade" id="newAgentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form class="modal-content" id="create-agent-form">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-person-plus"></i> Create Agent</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="new-agent-id">Agent Identifier</label>
+                        <input type="text" class="form-control" id="new-agent-id" placeholder="e.g., support-bot" required>
+                        <div class="form-text">Use letters, numbers, hyphens, or underscores.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="new-agent-name">Display Name <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control" id="new-agent-name" placeholder="Support Bot">
+                    </div>
+                    <div class="alert alert-danger d-none" id="new-agent-error"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Agent</button>
+                </div>
+            </form>
         </div>
     </div>
 

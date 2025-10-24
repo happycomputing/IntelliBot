@@ -1,9 +1,65 @@
 const socket = io();
+const defaultWelcomeMessage = `
+    <div class="alert alert-info">
+        Welcome! I answer questions based only on the knowledge available to me.
+        Configure a URL and/or upload documents, then click "Index Knowledge Base" to get started.
+    </div>
+`;
+let newAgentModal = null;
 
 socket.on('connect', () => {
     console.log('Connected to server');
+    loadAgents();
     loadConfig();
     loadStats();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const agentForm = document.getElementById('agent-form');
+    if (agentForm) {
+        agentForm.addEventListener('submit', (event) => event.preventDefault());
+    }
+
+    const agentSelect = document.getElementById('agent-select');
+    if (agentSelect) {
+        agentSelect.addEventListener('change', () => {
+            const selected = agentSelect.value;
+            if (selected) {
+                selectAgent(selected);
+            }
+        });
+    }
+
+    const newAgentButton = document.getElementById('new-agent-btn');
+    if (newAgentButton) {
+        newAgentButton.addEventListener('click', () => {
+            hideNewAgentError();
+            const form = document.getElementById('create-agent-form');
+            if (form) {
+                form.reset();
+            }
+
+            if (!newAgentModal) {
+                newAgentModal = new bootstrap.Modal(document.getElementById('newAgentModal'));
+            }
+
+            newAgentModal.show();
+            setTimeout(() => {
+                const idInput = document.getElementById('new-agent-id');
+                if (idInput) {
+                    idInput.focus();
+                }
+            }, 200);
+        });
+    }
+
+    const createAgentForm = document.getElementById('create-agent-form');
+    if (createAgentForm) {
+        createAgentForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            createAgent();
+        });
+    }
 });
 
 socket.on('chat_response', (data) => {
@@ -31,6 +87,164 @@ socket.on('index_status', (data) => {
 socket.on('index_progress', (data) => {
     updateProgressStatus(data);
 });
+
+function loadAgents(preferredAgentId = null) {
+    const select = document.getElementById('agent-select');
+    if (!select) {
+        return;
+    }
+
+    fetch('/api/agents')
+        .then((r) => r.json())
+        .then((payload) => {
+            const agents = Array.isArray(payload.agents) ? payload.agents : [];
+            const activeAgent = preferredAgentId || (payload.active_agent && payload.active_agent.id) || '';
+
+            select.innerHTML = '';
+
+            if (agents.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No agents available';
+                option.disabled = true;
+                select.appendChild(option);
+                select.disabled = true;
+                return;
+            }
+
+            agents.forEach((agent) => {
+                const option = document.createElement('option');
+                option.value = agent.id;
+                option.textContent = agent.name;
+                select.appendChild(option);
+            });
+
+            if (activeAgent && agents.some((agent) => agent.id === activeAgent)) {
+                select.value = activeAgent;
+            } else {
+                select.selectedIndex = 0;
+            }
+
+            select.disabled = false;
+        })
+        .catch((err) => {
+            console.error('Unable to load agents', err);
+            select.disabled = true;
+        });
+}
+
+function selectAgent(agentId) {
+    const select = document.getElementById('agent-select');
+    if (!agentId) {
+        return;
+    }
+
+    if (select) {
+        select.disabled = true;
+    }
+
+    fetch('/api/agents/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: agentId }),
+    })
+        .then(async (response) => {
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const message = payload.error || 'Unable to switch agent';
+                throw new Error(message);
+            }
+            return payload;
+        })
+        .then((data) => {
+            loadAgents(data.agent.id);
+            resetChatMessages();
+            loadConfig();
+            loadStats();
+            const historyContainer = document.getElementById('conversation-history');
+            if (historyContainer) {
+                historyContainer.innerHTML = '<p class="text-muted small">Loading history...</p>';
+            }
+            loadConversations();
+            showStatus(`Switched to agent: ${data.agent.name}`, 'info');
+        })
+        .catch((err) => {
+            showStatus(err.message || 'Unable to switch agent', 'error');
+            if (select) {
+                select.disabled = false;
+            }
+            loadAgents();
+        })
+        .finally(() => {
+            if (select) {
+                select.disabled = false;
+            }
+        });
+}
+
+function createAgent() {
+    const idInput = document.getElementById('new-agent-id');
+    const nameInput = document.getElementById('new-agent-name');
+    const identifier = idInput ? idInput.value.trim() : '';
+    const displayName = nameInput ? nameInput.value.trim() : '';
+
+    if (!identifier) {
+        showNewAgentError('Please provide an agent identifier.');
+        return;
+    }
+
+    fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: identifier, name: displayName }),
+    })
+        .then(async (response) => {
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const message = payload.error || 'Unable to create agent';
+                throw new Error(message);
+            }
+            return payload;
+        })
+        .then((data) => {
+            hideNewAgentError();
+            if (!newAgentModal) {
+                newAgentModal = new bootstrap.Modal(document.getElementById('newAgentModal'));
+            }
+            newAgentModal.hide();
+            showStatus(`✓ Agent "${data.agent.name}" created`, 'success');
+            selectAgent(data.agent.id);
+        })
+        .catch((err) => {
+            showNewAgentError(err.message || 'Unable to create agent');
+        });
+}
+
+function showNewAgentError(message) {
+    const errorDiv = document.getElementById('new-agent-error');
+    if (!errorDiv) {
+        return;
+    }
+    errorDiv.classList.remove('d-none');
+    errorDiv.textContent = message;
+}
+
+function hideNewAgentError() {
+    const errorDiv = document.getElementById('new-agent-error');
+    if (!errorDiv) {
+        return;
+    }
+    errorDiv.classList.add('d-none');
+    errorDiv.textContent = '';
+}
+
+function resetChatMessages() {
+    const container = document.getElementById('chat-messages');
+    if (!container) {
+        return;
+    }
+    container.innerHTML = defaultWelcomeMessage;
+}
 
 function loadConfig() {
     fetch('/api/config')

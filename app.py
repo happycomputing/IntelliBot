@@ -5,6 +5,8 @@ import os
 import json
 import glob
 import shutil
+from pathlib import Path
+from typing import Dict, Optional
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -12,26 +14,24 @@ from retrieval_engine import RetrievalEngine
 from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
 from tools.process_docs import process_uploaded_documents
+from agent_storage import AgentStorage
 from models import db, Conversation, Intent
 import threading
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
 
-# Database configuration with validation
-database_url = os.environ.get('DATABASE_URL')
-if not database_url:
-    print("WARNING: DATABASE_URL not set. Conversation logging will be disabled.")
-    database_url = 'sqlite:///fallback.db'
+storage = AgentStorage()
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_DATABASE_URI'] = storage.sqlite_url
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_recycle": 300,
     "pool_pre_ping": True,
+    "connect_args": {"check_same_thread": False},
 }
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+storage.migrate_legacy_app_config(Path("config.json"))
 db.init_app(app)
 
 # Database availability flag
@@ -44,7 +44,7 @@ def init_database():
         try:
             db.create_all()
             DB_AVAILABLE = True
-            print("Database initialized successfully")
+            print(f"Database initialized successfully at {storage.sqlite_path}")
         except Exception as e:
             print(f"❌ Database initialization error: {e}")
             print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
@@ -52,7 +52,27 @@ def init_database():
 # Start database initialization in background
 threading.Thread(target=init_database, daemon=True).start()
 
-CONFIG_FILE = "config.json"
+
+def activate_agent(agent_id: str, display_name: Optional[str] = None) -> Dict[str, str]:
+    """Switch the active agent and rebind dependent services."""
+
+    global _retrieval, DB_AVAILABLE
+
+    metadata = storage.switch_agent(agent_id, display_name)
+    app.config['SQLALCHEMY_DATABASE_URI'] = storage.sqlite_url
+
+    with app.app_context():
+        db.session.remove()
+        try:
+            db.engine.dispose()
+        except Exception:
+            pass
+
+    DB_AVAILABLE = False
+    init_database()
+    _retrieval = None
+    return metadata
+
 DEFAULT_CONFIG = {}
 
 # Lazy-loaded retrieval engine
@@ -63,12 +83,10 @@ def get_retrieval():
     global _retrieval
     if _retrieval is None:
         startup_config = DEFAULT_CONFIG.copy()
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    startup_config = json.load(f)
-            except Exception as e:
-                print(f"Warning: Could not load config.json: {e}")
+        try:
+            startup_config.update(load_config())
+        except Exception as e:
+            print(f"Warning: Could not load agent app settings: {e}")
         
         _retrieval = RetrievalEngine(
             similarity_threshold=startup_config.get('similarity_threshold', 0.40), 
@@ -77,14 +95,12 @@ def get_retrieval():
     return _retrieval
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
-    return DEFAULT_CONFIG.copy()
+    config = storage.load_app_settings()
+    return config if config else DEFAULT_CONFIG.copy()
+
 
 def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
+    storage.save_app_settings(config)
 
 @app.route('/health')
 def health():
@@ -94,6 +110,63 @@ def health():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/agents', methods=['GET'])
+def list_agents():
+    return jsonify({
+        "agents": storage.list_agents(),
+        "active_agent": storage.current_agent(),
+    })
+
+
+@app.route('/api/agents', methods=['POST'])
+def create_agent():
+    payload = request.json or {}
+
+    identifier = (
+        payload.get('id')
+        or payload.get('identifier')
+        or payload.get('agent_id')
+        or payload.get('name')
+        or ""
+    )
+    display_name = payload.get('display_name') or payload.get('name')
+
+    if not str(identifier).strip():
+        return jsonify({"error": "Agent identifier is required"}), 400
+
+    try:
+        agent = storage.create_agent(str(identifier), display_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except FileExistsError as exc:
+        return jsonify({"error": str(exc)}), 409
+
+    return jsonify({"status": "created", "agent": agent}), 201
+
+
+@app.route('/api/agents/select', methods=['POST'])
+def select_agent():
+    payload = request.json or {}
+    identifier = (
+        payload.get('id')
+        or payload.get('identifier')
+        or payload.get('agent_id')
+        or ""
+    )
+    display_name = payload.get('display_name') or payload.get('name')
+
+    if not str(identifier).strip():
+        return jsonify({"error": "Agent identifier is required"}), 400
+
+    try:
+        agent = activate_agent(str(identifier), display_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({"status": "success", "agent": agent})
+
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
