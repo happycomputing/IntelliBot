@@ -18,6 +18,16 @@ import threading
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
 
+# Enable development-centric settings when requested
+env_setting = os.environ.get('INTELLIBOT_ENV', os.environ.get('FLASK_ENV', '')).lower()
+if env_setting == 'development' or os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes'):
+    app.config.update(
+        ENV='development',
+        DEBUG=True,
+        TEMPLATES_AUTO_RELOAD=True,
+    )
+    app.jinja_env.auto_reload = True
+
 # Database configuration with validation
 database_url = os.environ.get('DATABASE_URL')
 if not database_url:
@@ -188,10 +198,30 @@ def index_all():
     Combined workflow: Clear existing index, crawl URL (if provided), 
     process uploaded documents, and index everything together.
     """
-    url = request.form.get('url', '').strip()
-    max_pages = int(request.form.get('max_pages', 500))
-    chunk_size = int(request.form.get('chunk_size', 900))
-    chunk_overlap = int(request.form.get('chunk_overlap', 150))
+    url = (request.form.get('url') or '').strip()
+
+    def parse_int(value, default):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def parse_float(value, default):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    current_config = load_config()
+    max_pages = parse_int(request.form.get('max_pages'), current_config.get('max_pages', 500))
+    chunk_size = parse_int(request.form.get('chunk_size'), current_config.get('chunk_size', 900))
+    chunk_overlap = parse_int(request.form.get('chunk_overlap'), current_config.get('chunk_overlap', 150))
+    similarity_threshold = parse_float(
+        request.form.get('similarity_threshold'),
+        current_config.get('similarity_threshold', 0.40)
+    )
+    top_k = parse_int(request.form.get('top_k'), current_config.get('top_k', 4))
+
     uploaded_files_raw = request.files.getlist('documents')
     
     uploaded_files = []
@@ -200,6 +230,23 @@ def index_all():
             'filename': file.filename,
             'content': file.read()
         })
+
+    # Persist configuration updates so UI changes stick without an extra save step
+    new_config = current_config.copy()
+    new_config.update({
+        'url': url,
+        'max_pages': max_pages,
+        'chunk_size': chunk_size,
+        'chunk_overlap': chunk_overlap,
+        'similarity_threshold': similarity_threshold,
+        'top_k': top_k
+    })
+    save_config(new_config)
+
+    # Immediately apply retrieval settings so subsequent chats use latest values
+    retrieval = get_retrieval()
+    retrieval.similarity_threshold = similarity_threshold
+    retrieval.top_k = top_k
     
     def progress(status_type, message):
         socketio.emit('index_progress', {'type': status_type, 'message': message})
@@ -210,10 +257,12 @@ def index_all():
             progress('info', 'Clearing previous knowledge base...')
             if os.path.exists('kb/raw'):
                 shutil.rmtree('kb/raw')
-                os.makedirs('kb/raw')
+                os.makedirs('kb/raw', exist_ok=True)
             if os.path.exists('kb/index'):
                 shutil.rmtree('kb/index')
-                os.makedirs('kb/index')
+                os.makedirs('kb/index', exist_ok=True)
+            os.makedirs('kb/raw', exist_ok=True)
+            os.makedirs('kb/index', exist_ok=True)
             
             # Step 2: Crawl website if URL provided
             if url:
@@ -240,7 +289,87 @@ def index_all():
             
             index_result = index_kb(chunk_size, chunk_overlap, progress_callback=index_progress_cb)
             get_retrieval()._loaded = False
-            
+
+            # Step 5: Auto-detect intents from indexed content
+            intents_detected = 0
+            if DB_AVAILABLE:
+                progress('info', 'Detecting intents from indexed knowledge...')
+                from tools.detect_intents import auto_detect_intents
+                from actions import ActionHandler
+                from sqlalchemy.exc import SQLAlchemyError
+
+                with app.app_context():
+                    try:
+                        detection_result = auto_detect_intents()
+                    except Exception as e:
+                        progress('warning', f"Intent detection failed: {e}")
+                        detection_result = {'status': 'error', 'error': str(e)}
+                    
+                    if detection_result.get('status') == 'success':
+                        suggested_intents = detection_result.get('intents', []) or []
+                        if suggested_intents:
+                            try:
+                                Intent.query.filter_by(auto_detected=True).delete(synchronize_session=False)
+                                db.session.commit()
+                            except SQLAlchemyError as e:
+                                db.session.rollback()
+                                progress('warning', f"Could not clear previous auto intents: {e}")
+                            
+                            for intent_data in suggested_intents:
+                                name = (intent_data.get('name') or '').strip()
+                                if not name:
+                                    continue
+                                # Skip if a user-defined intent already exists with this name
+                                existing_intent = Intent.query.filter_by(name=name).first()
+                                if existing_intent:
+                                    if not existing_intent.auto_detected:
+                                        continue
+                                    db.session.delete(existing_intent)
+                                    db.session.flush()
+                                
+                                description = intent_data.get('description', '')
+                                patterns = intent_data.get('patterns') or []
+                                if isinstance(patterns, str):
+                                    patterns = [p.strip() for p in patterns.split(',') if p.strip()]
+                                examples = intent_data.get('examples') or []
+                                if isinstance(examples, str):
+                                    examples = [line.strip() for line in examples.splitlines() if line.strip()]
+                                
+                                defaults = ActionHandler.get_default_responses_for_intent(name, description)
+                                responses = intent_data.get('responses')
+                                if responses is None or isinstance(responses, str):
+                                    responses = defaults['responses']
+                                action_type = intent_data.get('action_type') or defaults['action_type']
+                                
+                                intent = Intent(
+                                    name=name,
+                                    description=description,
+                                    patterns=patterns,
+                                    examples=examples,
+                                    auto_detected=True,
+                                    enabled=True,
+                                    action_type=action_type,
+                                    responses=responses
+                                )
+                                db.session.add(intent)
+                                intents_detected += 1
+                            
+                            try:
+                                db.session.commit()
+                                progress('success', f"✓ Auto-detected {intents_detected} intents")
+                            except SQLAlchemyError as e:
+                                db.session.rollback()
+                                progress('warning', f"Failed to save auto intents: {e}")
+                                intents_detected = 0
+                        else:
+                            progress('warning', 'No intents detected from content.')
+                    elif detection_result.get('error'):
+                        progress('warning', detection_result['error'])
+            else:
+                progress('warning', 'Database unavailable: skipping intent detection.')
+                intents_detected = 0
+
+            index_result['intents_detected'] = intents_detected
             progress('success', f"✓ Knowledge base ready! {index_result['total_chunks']} chunks indexed")
             socketio.emit('index_status', {'status': 'completed', 'result': index_result})
             

@@ -1,310 +1,314 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IntelliBot - Knowledge Base Q&A</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="/static/css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IntelliBot - Knowledge Base Q&A</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="/static/css/style.css">
 </head>
+
 <body>
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1"><i class="bi bi-robot"></i> IntelliBot</span>
-            <span class="badge bg-light text-dark" id="status-badge">Not Indexed</span>
-        </div>
-    </nav>
-
-    <div class="container-fluid mt-3">
-        <div class="row">
-            <div class="col-md-3">
-                <div class="card mb-3">
-                    <div class="card-header bg-primary text-white">
-                        <i class="bi bi-gear"></i> Configuration
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">Website URL</label>
-                            <input type="url" class="form-control" id="url-input" placeholder="https://www.officems.co.za/">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Max Pages</label>
-                            <input type="number" class="form-control" id="max-pages-input" value="500">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Chunk Size</label>
-                            <input type="number" class="form-control" id="chunk-size-input" value="900">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Chunk Overlap</label>
-                            <input type="number" class="form-control" id="chunk-overlap-input" value="150">
-                        </div>
-                        <button class="btn btn-primary w-100" onclick="saveConfig()">
-                            <i class="bi bi-save"></i> Save Config
-                        </button>
-                    </div>
-                </div>
-
-                <div class="card mb-3">
-                    <div class="card-header bg-success text-white">
-                        <i class="bi bi-book"></i> Knowledge Base
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label small">Upload Documents (Optional)</label>
-                            <input type="file" class="form-control form-control-sm" id="doc-upload" multiple accept=".md,.pdf">
-                            <small class="text-muted">Markdown or PDF files</small>
-                        </div>
-                        <button class="btn btn-success w-100 mb-2" onclick="startIndexing()">
-                            <i class="bi bi-lightning"></i> Index Knowledge Base
-                        </button>
-                        <div class="alert alert-warning py-1 px-2 mt-2 small mb-2">
-                            <strong>Note:</strong> This will learn from your website URL and/or uploaded documents.
-                        </div>
-                        <div id="crawl-status" class="mt-2 small"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header bg-info text-white">
-                        <i class="bi bi-sliders"></i> Retrieval Settings
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">Similarity Threshold</label>
-                            <input type="number" class="form-control" id="similarity-threshold" step="0.01" value="0.52">
-                            <small class="text-muted">Higher = stricter matching</small>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Top K Results</label>
-                            <input type="number" class="form-control" id="top-k" value="4">
-                        </div>
-                        <button class="btn btn-info w-100" onclick="saveConfig()">
-                            <i class="bi bi-check2"></i> Apply Settings
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6">
-                <div class="card h-100">
-                    <div class="card-header bg-dark text-white">
-                        <i class="bi bi-chat-dots"></i> Chat Interface
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div id="chat-messages" class="flex-grow-1 overflow-auto mb-3" style="max-height: 600px;">
-                            <div class="alert alert-info">
-                                Welcome! I answer questions based only on the knowledge available to me. 
-                                Configure a URL and/or upload documents, then click "Index Knowledge Base" to get started.
-                            </div>
-                        </div>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="show-references" checked>
-                            <label class="form-check-label small" for="show-references">
-                                Show references in responses
-                            </label>
-                        </div>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="chat-input" placeholder="Ask a question..." onkeypress="if(event.key==='Enter')sendMessage()">
-                            <button class="btn btn-primary" onclick="sendMessage()">
-                                <i class="bi bi-send"></i> Send
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-3">
-                <div class="card mb-3">
-                    <div class="card-header bg-warning text-dark">
-                        <i class="bi bi-bar-chart"></i> Statistics
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-2">
-                            <strong>Configured URL:</strong>
-                            <div id="stat-url" class="text-muted small">-</div>
-                        </div>
-                        <div class="mb-2">
-                            <strong>Raw Documents:</strong>
-                            <span id="stat-raw-docs" class="badge bg-secondary">0</span>
-                        </div>
-                        <div class="mb-2">
-                            <strong>Total Chunks:</strong>
-                            <span id="stat-chunks" class="badge bg-secondary">0</span>
-                        </div>
-                        <div class="mb-2">
-                            <strong>Indexed:</strong>
-                            <span id="stat-indexed" class="badge bg-secondary">No</span>
-                        </div>
-                        <div class="mb-2">
-                            <strong>Document Sources:</strong>
-                            <div id="stat-sources" class="small text-muted mt-1" style="max-height: 150px; overflow-y: auto;">
-                                <em>No documents loaded</em>
-                            </div>
-                        </div>
-                        <button class="btn btn-sm btn-outline-primary w-100 mt-2" onclick="loadStats()">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh
-                        </button>
-                    </div>
-                </div>
-
-                <div class="card mb-3">
-                    <div class="card-header bg-danger text-white">
-                        <i class="bi bi-trash"></i> Danger Zone
-                    </div>
-                    <div class="card-body">
-                        <p class="small mb-2">Clear all crawled data, index, conversations, and reset to defaults.</p>
-                        <button class="btn btn-danger w-100" onclick="clearBot()">
-                            <i class="bi bi-exclamation-triangle"></i> Clear Bot
-                        </button>
-                    </div>
-                </div>
-
-                <div class="card mb-3">
-                    <div class="card-header bg-purple text-white" style="background-color: #6f42c1;">
-                        <i class="bi bi-clock-history"></i> Conversation History
-                    </div>
-                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
-                        <div class="d-flex gap-2 mb-2">
-                            <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="loadConversations()">
-                                <i class="bi bi-arrow-clockwise"></i> Load History
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="clearConversationHistory()">
-                                <i class="bi bi-trash"></i> Clear History
-                            </button>
-                        </div>
-                        <div id="conversation-history"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header bg-secondary text-white">
-                        <i class="bi bi-info-circle"></i> About
-                    </div>
-                    <div class="card-body small">
-                        <p><strong>Hybrid Architecture:</strong></p>
-                        <ul class="mb-2">
-                            <li><strong>Factual Q&A:</strong> FAISS + Sentence Transformers (no hallucination)</li>
-                            <li><strong>Conversational:</strong> GPT-4o-mini for greetings & helpful responses</li>
-                            <li><strong>Intent Detection:</strong> Smart routing based on message type</li>
-                        </ul>
-                        <p><strong>Tech Stack:</strong></p>
-                        <ul class="mb-0">
-                            <li>Trafilatura web crawler</li>
-                            <li>FAISS vector search</li>
-                            <li>OpenAI GPT-4o-mini</li>
-                            <li>PostgreSQL logging</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
+  <nav class="navbar navbar-dark bg-primary">
+    <div class="container-fluid">
+      <span class="navbar-brand mb-0 h1"><i class="bi bi-robot"></i> IntelliBot</span>
+      <span class="badge bg-light text-dark" id="status-badge">Not Indexed</span>
     </div>
+  </nav>
 
-    <!-- Bot Intelligence Panel Button -->
-    <button class="btn btn-primary btn-lg" id="intelligence-panel-btn" style="position: fixed; bottom: 20px; right: 20px; border-radius: 50%; width: 60px; height: 60px; z-index: 1000;" onclick="openIntelligencePanel()">
-        <i class="bi bi-robot" style="font-size: 24px;"></i>
-    </button>
-
-    <!-- Bot Intelligence Panel Modal -->
-    <div class="modal fade" id="intelligencePanel" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="bi bi-robot"></i> Bot Intelligence Panel</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <ul class="nav nav-tabs mb-3" id="intelligenceTabs" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="conversations-tab" data-bs-toggle="tab" data-bs-target="#conversations" type="button" role="tab">
-                                <i class="bi bi-chat-dots"></i> Conversations
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="intents-tab" data-bs-toggle="tab" data-bs-target="#intents" type="button" role="tab">
-                                <i class="bi bi-lightbulb"></i> Intents
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="training-tab" data-bs-toggle="tab" data-bs-target="#training" type="button" role="tab">
-                                <i class="bi bi-database"></i> Training
-                            </button>
-                        </li>
-                    </ul>
-                    
-                    <div class="tab-content" id="intelligenceTabContent">
-                        <!-- Conversations Tab -->
-                        <div class="tab-pane fade show active" id="conversations" role="tabpanel">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h6>Recent Conversations</h6>
-                                <div>
-                                    <input type="text" class="form-control form-control-sm d-inline-block" style="width: 250px;" id="conv-search" placeholder="Search conversations..." onkeyup="filterConversations()">
-                                </div>
-                            </div>
-                            <div id="panel-conversations" class="row"></div>
-                        </div>
-                        
-                        <!-- Intents Tab -->
-                        <div class="tab-pane fade" id="intents" role="tabpanel">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h6>Manage Intents</h6>
-                                <div>
-                                    <button class="btn btn-primary btn-sm" onclick="autoDetectIntents()">
-                                        <i class="bi bi-magic"></i> Auto-Detect Intents
-                                    </button>
-                                    <button class="btn btn-success btn-sm" onclick="showCreateIntent()">
-                                        <i class="bi bi-plus"></i> New Intent
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="intents-list"></div>
-                            <div id="create-intent-form" style="display: none;" class="card mb-3">
-                                <div class="card-body">
-                                    <h6>Create New Intent</h6>
-                                    <div class="mb-2">
-                                        <label class="form-label">Name</label>
-                                        <input type="text" class="form-control form-control-sm" id="new-intent-name" placeholder="e.g., company_info">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label">Description</label>
-                                        <input type="text" class="form-control form-control-sm" id="new-intent-desc" placeholder="What this intent covers">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label">Patterns (comma-separated keywords)</label>
-                                        <input type="text" class="form-control form-control-sm" id="new-intent-patterns" placeholder="about, company, who are you">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label">Example Questions (one per line)</label>
-                                        <textarea class="form-control form-control-sm" id="new-intent-examples" rows="3" placeholder="Tell me about the company&#10;What does this company do?"></textarea>
-                                    </div>
-                                    <button class="btn btn-primary btn-sm" onclick="createIntent()">Save Intent</button>
-                                    <button class="btn btn-secondary btn-sm" onclick="cancelCreateIntent()">Cancel</button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Training Tab -->
-                        <div class="tab-pane fade" id="training" role="tabpanel">
-                            <h6>Export Training Data</h6>
-                            <p class="text-muted small">Generate Rasa-format YAML from your intents and examples</p>
-                            <button class="btn btn-primary btn-sm mb-3" onclick="exportTrainingData()">
-                                <i class="bi bi-download"></i> Export Rasa YAML
-                            </button>
-                            <div id="training-stats" class="alert alert-info" style="display: none;"></div>
-                            <div id="training-output">
-                                <pre class="bg-light p-3" style="max-height: 400px; overflow-y: auto;"><code id="yaml-output"></code></pre>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+  <div class="container-fluid mt-3">
+    <div class="row">
+      <div class="col-md-3">
+        <div class="card mb-3">
+          <div class="card-header bg-primary text-white">
+            <i class="bi bi-gear"></i> Configuration
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">Website URL</label>
+              <input type="url" class="form-control" id="url-input" placeholder="https://www.officems.co.za/">
             </div>
+            <div class="mb-3">
+              <label class="form-label">Max Pages</label>
+              <input type="number" class="form-control" id="max-pages-input" value="500">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Chunk Size</label>
+              <input type="number" class="form-control" id="chunk-size-input" value="900">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Chunk Overlap</label>
+              <input type="number" class="form-control" id="chunk-overlap-input" value="150">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small">Upload Documents (Optional)</label>
+              <input type="file" class="form-control form-control-sm" id="doc-upload" multiple accept=".md,.pdf">
+              <small class="text-muted">Markdown or PDF files</small>
+            </div>
+            <button class="btn btn-success w-100 mb-2" onclick="startIndexing()">
+              <i class="bi bi-lightning"></i> Index Knowledge Base
+            </button>
+            <div class="alert alert-warning py-2 px-2 small mb-2">
+              This will crawl the configured URL, process uploaded documents, rebuild the index, and auto-detect intents.
+            </div>
+            <div id="crawl-status" class="mt-2 small text-muted"></div>
+          </div>
         </div>
-    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="/static/js/app.js"></script>
+        <div class="card">
+          <div class="card-header bg-info text-white">
+            <i class="bi bi-sliders"></i> Retrieval Settings
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">Similarity Threshold</label>
+              <input type="number" class="form-control" id="similarity-threshold" step="0.01" value="0.52">
+              <small class="text-muted">Higher = stricter matching</small>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Top K Results</label>
+              <input type="number" class="form-control" id="top-k" value="4">
+            </div>
+            <button class="btn btn-info w-100" onclick="saveConfig()">
+              <i class="bi bi-check2"></i> Apply Settings
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header bg-dark text-white">
+            <i class="bi bi-chat-dots"></i> Chat Interface
+          </div>
+          <div class="card-body d-flex flex-column">
+            <div id="chat-messages" class="flex-grow-1 overflow-auto mb-3" style="max-height: 600px;">
+              <div class="alert alert-info">
+                Welcome! I answer questions based only on the knowledge available to me.
+                Configure a URL and/or upload documents, then click "Index Knowledge Base" to get started.
+              </div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="show-references" checked>
+              <label class="form-check-label small" for="show-references">
+                Show references in responses
+              </label>
+            </div>
+            <div class="input-group">
+              <input type="text" class="form-control" id="chat-input" placeholder="Ask a question..."
+                onkeypress="if(event.key==='Enter')sendMessage()">
+              <button class="btn btn-primary" onclick="sendMessage()">
+                <i class="bi bi-send"></i> Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <div class="card mb-3">
+          <div class="card-header bg-warning text-dark">
+            <i class="bi bi-bar-chart"></i> Statistics
+          </div>
+          <div class="card-body">
+            <div class="mb-2">
+              <strong>Configured URL:</strong>
+              <div id="stat-url" class="text-muted small">-</div>
+            </div>
+            <div class="mb-2">
+              <strong>Raw Documents:</strong>
+              <span id="stat-raw-docs" class="badge bg-secondary">0</span>
+            </div>
+            <div class="mb-2">
+              <strong>Total Chunks:</strong>
+              <span id="stat-chunks" class="badge bg-secondary">0</span>
+            </div>
+            <div class="mb-2">
+              <strong>Indexed:</strong>
+              <span id="stat-indexed" class="badge bg-secondary">No</span>
+            </div>
+            <div class="mb-2">
+              <strong>Document Sources:</strong>
+              <div id="stat-sources" class="small text-muted mt-1" style="max-height: 150px; overflow-y: auto;">
+                <em>No documents loaded</em>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-outline-primary w-100 mt-2" onclick="loadStats()">
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header bg-danger text-white">
+            <i class="bi bi-trash"></i> Danger Zone
+          </div>
+          <div class="card-body">
+            <p class="small mb-2">Clear all crawled data, index, conversations, and reset to defaults.</p>
+            <button class="btn btn-danger w-100" onclick="clearBot()">
+              <i class="bi bi-exclamation-triangle"></i> Clear Bot
+            </button>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header bg-purple text-white" style="background-color: #6f42c1;">
+            <i class="bi bi-clock-history"></i> Conversation History
+          </div>
+          <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+            <div class="d-flex gap-2 mb-2">
+              <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="loadConversations()">
+                <i class="bi bi-arrow-clockwise"></i> Load History
+              </button>
+              <button class="btn btn-sm btn-outline-danger" onclick="clearConversationHistory()">
+                <i class="bi bi-trash"></i> Clear History
+              </button>
+            </div>
+            <div id="conversation-history"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header bg-secondary text-white">
+            <i class="bi bi-info-circle"></i> About
+          </div>
+          <div class="card-body small">
+            <p><strong>Hybrid Architecture:</strong></p>
+            <ul class="mb-2">
+              <li><strong>Factual Q&A:</strong> FAISS + Sentence Transformers (no hallucination)</li>
+              <li><strong>Conversational:</strong> GPT-4o-mini for greetings & helpful responses</li>
+              <li><strong>Intent Detection:</strong> Smart routing based on message type</li>
+            </ul>
+            <p><strong>Tech Stack:</strong></p>
+            <ul class="mb-0">
+              <li>Trafilatura web crawler</li>
+              <li>FAISS vector search</li>
+              <li>OpenAI GPT-4o-mini</li>
+              <li>PostgreSQL logging</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bot Intelligence Panel Button -->
+  <button class="btn btn-primary btn-lg" id="intelligence-panel-btn"
+    style="position: fixed; bottom: 20px; right: 20px; border-radius: 50%; width: 60px; height: 60px; z-index: 1000;"
+    onclick="openIntelligencePanel()">
+    <i class="bi bi-robot" style="font-size: 24px;"></i>
+  </button>
+
+  <!-- Bot Intelligence Panel Modal -->
+  <div class="modal fade" id="intelligencePanel" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title"><i class="bi bi-robot"></i> Bot Intelligence Panel</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <ul class="nav nav-tabs mb-3" id="intelligenceTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="conversations-tab" data-bs-toggle="tab"
+                data-bs-target="#conversations" type="button" role="tab">
+                <i class="bi bi-chat-dots"></i> Conversations
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="intents-tab" data-bs-toggle="tab" data-bs-target="#intents" type="button"
+                role="tab">
+                <i class="bi bi-lightbulb"></i> Intents
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="training-tab" data-bs-toggle="tab" data-bs-target="#training" type="button"
+                role="tab">
+                <i class="bi bi-database"></i> Training
+              </button>
+            </li>
+          </ul>
+
+          <div class="tab-content" id="intelligenceTabContent">
+            <!-- Conversations Tab -->
+            <div class="tab-pane fade show active" id="conversations" role="tabpanel">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6>Recent Conversations</h6>
+                <div>
+                  <input type="text" class="form-control form-control-sm d-inline-block" style="width: 250px;"
+                    id="conv-search" placeholder="Search conversations..." onkeyup="filterConversations()">
+                </div>
+              </div>
+              <div id="panel-conversations" class="row"></div>
+            </div>
+
+            <!-- Intents Tab -->
+            <div class="tab-pane fade" id="intents" role="tabpanel">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6>Manage Intents</h6>
+                <div>
+                  <button class="btn btn-primary btn-sm" onclick="autoDetectIntents()">
+                    <i class="bi bi-magic"></i> Auto-Detect Intents
+                  </button>
+                  <button class="btn btn-success btn-sm" onclick="showCreateIntent()">
+                    <i class="bi bi-plus"></i> New Intent
+                  </button>
+                </div>
+              </div>
+              <div id="intents-list"></div>
+              <div id="create-intent-form" style="display: none;" class="card mb-3">
+                <div class="card-body">
+                  <h6>Create New Intent</h6>
+                  <div class="mb-2">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control form-control-sm" id="new-intent-name"
+                      placeholder="e.g., company_info">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Description</label>
+                    <input type="text" class="form-control form-control-sm" id="new-intent-desc"
+                      placeholder="What this intent covers">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Patterns (comma-separated keywords)</label>
+                    <input type="text" class="form-control form-control-sm" id="new-intent-patterns"
+                      placeholder="about, company, who are you">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Example Questions (one per line)</label>
+                    <textarea class="form-control form-control-sm" id="new-intent-examples" rows="3"
+                      placeholder="Tell me about the company&#10;What does this company do?"></textarea>
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="createIntent()">Save Intent</button>
+                  <button class="btn btn-secondary btn-sm" onclick="cancelCreateIntent()">Cancel</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Training Tab -->
+            <div class="tab-pane fade" id="training" role="tabpanel">
+              <h6>Export Training Data</h6>
+              <p class="text-muted small">Generate Rasa-format YAML from your intents and examples</p>
+              <button class="btn btn-primary btn-sm mb-3" onclick="exportTrainingData()">
+                <i class="bi bi-download"></i> Export Rasa YAML
+              </button>
+              <div id="training-stats" class="alert alert-info" style="display: none;"></div>
+              <div id="training-output">
+                <pre class="bg-light p-3"
+                  style="max-height: 400px; overflow-y: auto;"><code id="yaml-output"></code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="/static/js/app.js"></script>
 </body>
+
 </html>

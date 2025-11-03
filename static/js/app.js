@@ -25,6 +25,7 @@ socket.on('index_status', (data) => {
     updateCrawlStatus(data);
     if (data.status === 'completed') {
         loadStats();
+        loadIntents();
     }
 });
 
@@ -129,6 +130,8 @@ function startIndexing() {
     const maxPages = parseInt(document.getElementById('max-pages-input').value);
     const chunkSize = parseInt(document.getElementById('chunk-size-input').value);
     const chunkOverlap = parseInt(document.getElementById('chunk-overlap-input').value);
+    const similarityThreshold = parseFloat(document.getElementById('similarity-threshold').value);
+    const topK = parseInt(document.getElementById('top-k').value, 10);
     const fileInput = document.getElementById('doc-upload');
     
     const formData = new FormData();
@@ -136,6 +139,12 @@ function startIndexing() {
     formData.append('max_pages', maxPages);
     formData.append('chunk_size', chunkSize);
     formData.append('chunk_overlap', chunkOverlap);
+    if (!Number.isNaN(similarityThreshold)) {
+        formData.append('similarity_threshold', similarityThreshold);
+    }
+    if (!Number.isNaN(topK)) {
+        formData.append('top_k', topK);
+    }
     
     if (fileInput.files.length > 0) {
         for (let i = 0; i < fileInput.files.length; i++) {
@@ -148,13 +157,14 @@ function startIndexing() {
         return;
     }
     
+    showStatus('⟳ Building knowledge base...', 'info');
+    
     fetch('/api/index_all', {
         method: 'POST',
         body: formData
     })
     .then(r => r.json())
     .then(data => {
-        showStatus('Building knowledge base...', 'info');
         fileInput.value = '';
     })
     .catch(err => {
@@ -222,34 +232,51 @@ function addBotMessage(data) {
 
 function updateCrawlStatus(data) {
     const statusDiv = document.getElementById('crawl-status');
+    if (!statusDiv) {
+        return;
+    }
+    
     let statusClass = 'status-info';
     let message = data.message || '';
     
     if (data.status === 'completed') {
         statusClass = 'status-success';
         if (data.result) {
-            message = `✓ ${data.result.pages || 0} pages processed`;
+            if (typeof data.result.total_chunks !== 'undefined') {
+                message = `✓ Indexed ${data.result.total_chunks} chunks`;
+                if (typeof data.result.intents_detected !== 'undefined') {
+                    message += ` • Auto intents: ${data.result.intents_detected}`;
+                }
+            } else if (typeof data.result.pages !== 'undefined') {
+                message = `✓ ${data.result.pages || 0} pages processed`;
+            }
         }
     } else if (data.status === 'error') {
         statusClass = 'status-error';
         message = `✗ ${message}`;
     } else if (data.status === 'started') {
         statusClass = 'status-info';
-        message = `⟳ ${message}`;
+        message = `⟳ ${message || 'Starting...'}`;
     }
     
-    statusDiv.className = statusClass;
+    statusDiv.className = `mt-2 small ${statusClass}`;
     statusDiv.textContent = message;
 }
 
 function showStatus(message, type) {
     const statusDiv = document.getElementById('crawl-status');
-    statusDiv.className = `status-${type}`;
+    if (!statusDiv) {
+        return;
+    }
+    statusDiv.className = `mt-2 small status-${type}`;
     statusDiv.textContent = message;
 }
 
 function updateProgressStatus(data) {
     const statusDiv = document.getElementById('crawl-status');
+    if (!statusDiv) {
+        return;
+    }
     let statusClass = 'status-info';
     let icon = '⟳';
     
@@ -267,7 +294,7 @@ function updateProgressStatus(data) {
         icon = '✓';
     }
     
-    statusDiv.className = statusClass;
+    statusDiv.className = `mt-2 small ${statusClass}`;
     statusDiv.textContent = `${icon} ${data.message}`;
 }
 
