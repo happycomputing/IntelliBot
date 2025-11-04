@@ -7,6 +7,7 @@ Use two spaces for indentation.
 - **App port**: Gunicorn listens on `80` inside the container (access via container IP/port 80)
 - **Python env**: `/workspace/IntelliBot/.venv`
 - **Service env vars**: `/etc/intellibot.env` (update with real secrets, then restart service)
+- **Core secrets**: `OPENAI_API_KEY`, `SESSION_SECRET` (SQLite handled locally via `intellibot.db`)
 
 ## Container Access
 
@@ -74,14 +75,14 @@ PY"
 
 ## Conversation Storage & Feedback
 
-- Database: `sqlite:////workspace/IntelliBot/fallback.db`
+- Database file: `sqlite:////workspace/IntelliBot/intellibot.db`
 - Inspect recent conversations (requires venv for Python):
 
   ```bash
   lxc exec IntelliBot -- bash -lc "cd /workspace/IntelliBot && source .venv/bin/activate && python - <<'PY'
 import sqlite3
 
-conn = sqlite3.connect('fallback.db')
+conn = sqlite3.connect('intellibot.db')
 conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 cur.execute('SELECT id, question, substr(answer, 1, 80) AS answer_snippet, timestamp, feedback FROM conversations ORDER BY id DESC LIMIT 5')
@@ -113,6 +114,7 @@ lxc exec IntelliBot -- bash -lc "curl -I http://127.0.0.1:80/health"
 ## Notes
 
 - Update `/etc/intellibot.env` whenever secrets or DB connection change, then `systemctl restart intellibot.service`.
+- SQLite lives at `/workspace/IntelliBot/intellibot.db`; back up before destructive operations.
 - If the bind mount breaks permissions, reapply shift and restart:
   `lxc config device set IntelliBot code shift true && lxc restart IntelliBot`.
 - Access the app via `http://10.130.0.134/` (or container name if DNS is configured); open firewall routes as needed.
