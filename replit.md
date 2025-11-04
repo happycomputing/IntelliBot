@@ -37,7 +37,7 @@ Long-running operations like crawling and indexing run in background threads, wi
 
 A hybrid storage approach is used:
 -   **File-based storage**: `kb/raw` for crawled content, `kb/index` for embeddings (numpy arrays) and metadata, and `config.json` for application settings. This leverages simple file I/O for efficient content and index management.
--   **PostgreSQL**: Stores conversation history (question, answer, sources, feedback) via Flask-SQLAlchemy, enabling conversation logging and feedback for improvement.
+-   **SQLite**: `intellibot.db` (managed through SQLAlchemy) stores conversation history (question, answer, sources, feedback), enabling logging and feedback without external databases.
 
 ### Embedding and Search Architecture
 
@@ -63,12 +63,10 @@ The application is optimized for production deployment with the following archit
 -   **Web Framework**: `Flask`, `flask-socketio`, `flask-cors`, `flask-sqlalchemy`
 -   **Web Crawling**: `requests`, `beautifulsoup4`, `trafilatura`
 -   **Machine Learning & Search**: `numpy`, `openai`
--   **Database**: `psycopg2`
 
 ### External Services
 
 -   **OpenAI API**: Used for conversational interactions (GPT-4o-mini), intent detection, and generating non-factual responses.
--   **PostgreSQL Database**: Stores conversation history and user feedback.
 
 ### Content Source
 

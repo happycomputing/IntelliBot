@@ -1,5 +1,7 @@
 # IntelliBot Ops Notes *(local only — do not commit)*
 
+Use two spaces for indentation.
+
 - **Container**: `IntelliBot` (LXC), IPv4 `10.130.0.134`
 - **Project path**: `/workspace/IntelliBot` (host repo is bind-mounted via `code` device with `shift=true`)
 - **App port**: Gunicorn listens on `80` inside the container (access via container IP/port 80)

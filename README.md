@@ -11,7 +11,7 @@ A Flask-based intelligent chatbot that combines OpenAI GPT-4o-mini for conversat
 - **Semantic Search**: Uses OpenAI embeddings (text-embedding-3-small) with numpy-based cosine similarity
 - **Real-time Interface**: Socket.IO-powered chat with instant responses and progress updates
 - **Intent Management**: Rasa-style intent-to-action system with static, retrieval, and hybrid response types
-- **Conversation History**: PostgreSQL-backed logging with user feedback capabilities
+- **Conversation History**: SQLite-backed logging with user feedback capabilities
 
 ### Advanced Features
 - **Bot Intelligence Panel**: Manage intents with inline editing, action types, and live preview of hybrid templates
@@ -26,7 +26,7 @@ A Flask-based intelligent chatbot that combines OpenAI GPT-4o-mini for conversat
 - **Backend**: Flask + Flask-SocketIO + Eventlet
 - **AI/ML**: OpenAI (GPT-4o-mini, text-embedding-3-small)
 - **Search**: Numpy-based cosine similarity
-- **Database**: PostgreSQL for conversations, File-based for knowledge base
+- **Database**: SQLite for conversations, file-based knowledge base storage
 - **Frontend**: Vanilla JavaScript, Bootstrap 5, Socket.IO
 
 ### Key Design Decisions
@@ -51,11 +51,10 @@ Key options can be overridden at runtime, for example:
 LXC_IMAGE=ubuntu:24.04 CONTAINER_PORT=5000 HOST_PROJECT_PATH=$PWD ./scripts/setup_intellibot_lxc.sh
 ```
 
-The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and automatically falls back to the Ubuntu Images remote (`images:ubuntu/24.04/cloud`) if the primary alias is unavailable. See `scripts/setup_intellibot_lxc.sh` for additional knobs such as mounting a host workspace, forwarding ports, and optional PostgreSQL installation.
+The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and automatically falls back to the Ubuntu Images remote (`images:ubuntu/24.04/cloud`) if the primary alias is unavailable. See `scripts/setup_intellibot_lxc.sh` for additional knobs such as mounting a host workspace and forwarding ports.
 
 ### Prerequisites
 - Python 3.11+
-- PostgreSQL database
 - OpenAI API key
 
 ### Installation
@@ -69,7 +68,6 @@ The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and au
 2. **Set up environment variables**
    ```bash
    export OPENAI_API_KEY="your-openai-api-key"
-   export DATABASE_URL="postgresql://user:password@host:port/dbname"
    export SESSION_SECRET="your-secret-key"
    ```
 
@@ -131,7 +129,6 @@ The app is pre-configured for Replit VM deployment:
 
 1. **Ensure secrets are set**:
    - `OPENAI_API_KEY`
-   - `DATABASE_URL` (automatically set by Replit)
    - `SESSION_SECRET`
 
 2. **Click Deploy** in Replit
@@ -159,7 +156,6 @@ gunicorn --worker-class eventlet -w 1 --worker-connections 1000 app:app --bind 0
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | OpenAI API key for GPT and embeddings | Required |
-| `DATABASE_URL` | PostgreSQL connection string | Required |
 | `SESSION_SECRET` | Flask session secret key | `dev-secret-key` |
 
 ### Application Settings (config.json)
@@ -239,7 +235,6 @@ gunicorn --worker-class eventlet -w 1 --worker-connections 1000 app:app --bind 0
 **Q: Deployment health checks fail**
 - Ensure eventlet.monkey_patch() is at top of app.py
 - Verify no blocking operations in startup code
-- Check DATABASE_URL is accessible
 
 **Q: Slow response times**
 - Reduce chunk_size for faster search

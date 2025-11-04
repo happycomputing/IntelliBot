@@ -28,13 +28,10 @@ if env_setting == 'development' or os.environ.get('FLASK_DEBUG', '').lower() in 
     )
     app.jinja_env.auto_reload = True
 
-# Database configuration with validation
-database_url = os.environ.get('DATABASE_URL')
-if not database_url:
-    print("WARNING: DATABASE_URL not set. Conversation logging will be disabled.")
-    database_url = 'sqlite:///fallback.db'
-
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+# Database configuration (SQLite only)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+SQLITE_PATH = os.path.join(BASE_DIR, 'intellibot.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{SQLITE_PATH}"
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_recycle": 300,
     "pool_pre_ping": True,
