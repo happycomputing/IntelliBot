@@ -5,7 +5,7 @@ import os
 import json
 import glob
 import shutil
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from retrieval_engine import RetrievalEngine
@@ -68,6 +68,17 @@ DEFAULT_CONFIG = {}
 # Lazy-loaded retrieval engine
 _retrieval = None
 
+def normalize_url(url, default=None):
+    """Ensure URLs include a scheme and strip whitespace."""
+    if url is None:
+        return default or ''
+    url = url.strip()
+    if not url:
+        return default or ''
+    if not url.lower().startswith(('http://', 'https://')):
+        url = f'https://{url}'
+    return url
+
 def get_retrieval():
     """Get or initialize retrieval engine (lazy loading)"""
     global _retrieval
@@ -113,6 +124,8 @@ def get_config():
 @app.route('/api/config', methods=['POST'])
 def update_config():
     config = request.json
+    if isinstance(config, dict):
+        config['url'] = normalize_url(config.get('url'))
     save_config(config)
     # Update retrieval engine settings immediately
     get_retrieval().similarity_threshold = config.get('similarity_threshold', 0.40)
@@ -129,26 +142,49 @@ def get_stats():
     
     # Extract document sources (URLs)
     sources = []
+    seen_sources = set()
     for raw_file in raw_files:
         try:
             with open(raw_file, 'r') as f:
                 doc = json.load(f)
                 url = doc.get('url', 'Unknown')
-                sources.append(url)
+                label = doc.get('label') or url
+                if not url:
+                    continue
+                if url in seen_sources:
+                    continue
+                seen_sources.add(url)
+                sources.append({
+                    "url": url,
+                    "label": label
+                })
         except Exception:
             pass
     
-    stats['document_sources'] = sorted(list(set(sources)))  # Unique, sorted URLs
+    stats['document_sources'] = sorted(
+        sources,
+        key=lambda entry: str(entry.get('label') or entry.get('url', '')).lower()
+    )
     
     config = load_config()
     stats['configured_url'] = config.get('url', '')
     
     return jsonify(stats)
 
+@app.route('/uploads/<path:filename>')
+def serve_uploaded_document(filename):
+    uploads_dir = os.path.abspath(os.path.join(os.getcwd(), 'kb', 'uploads'))
+    requested_path = os.path.abspath(os.path.join(uploads_dir, filename))
+    if os.path.commonpath([uploads_dir, requested_path]) != uploads_dir:
+        abort(404)
+    if not os.path.exists(requested_path):
+        abort(404)
+    return send_from_directory(uploads_dir, filename)
+
 @app.route('/api/crawl', methods=['POST'])
 def start_crawl():
     data = request.json
-    url = data.get('url', 'https://www.officems.co.za/')
+    url = normalize_url(data.get('url'), default='https://www.officems.co.za/')
     max_pages = data.get('max_pages', 500)
     
     def crawl_progress(status_type, message):
@@ -198,7 +234,7 @@ def index_all():
     Combined workflow: Clear existing index, crawl URL (if provided), 
     process uploaded documents, and index everything together.
     """
-    url = (request.form.get('url') or '').strip()
+    url = normalize_url(request.form.get('url'))
 
     def parse_int(value, default):
         try:
@@ -234,7 +270,7 @@ def index_all():
     # Persist configuration updates so UI changes stick without an extra save step
     new_config = current_config.copy()
     new_config.update({
-        'url': url,
+        'url': url or current_config.get('url', ''),
         'max_pages': max_pages,
         'chunk_size': chunk_size,
         'chunk_overlap': chunk_overlap,
@@ -257,12 +293,13 @@ def index_all():
             progress('info', 'Clearing previous knowledge base...')
             if os.path.exists('kb/raw'):
                 shutil.rmtree('kb/raw')
-                os.makedirs('kb/raw', exist_ok=True)
             if os.path.exists('kb/index'):
                 shutil.rmtree('kb/index')
-                os.makedirs('kb/index', exist_ok=True)
+            if os.path.exists('kb/uploads'):
+                shutil.rmtree('kb/uploads')
             os.makedirs('kb/raw', exist_ok=True)
             os.makedirs('kb/index', exist_ok=True)
+            os.makedirs('kb/uploads', exist_ok=True)
             
             # Step 2: Crawl website if URL provided
             if url:
@@ -447,12 +484,16 @@ def clear_bot():
         # Clear crawled documents
         if os.path.exists('kb/raw'):
             shutil.rmtree('kb/raw')
-            os.makedirs('kb/raw')
+            os.makedirs('kb/raw', exist_ok=True)
         
         # Clear index
         if os.path.exists('kb/index'):
             shutil.rmtree('kb/index')
-            os.makedirs('kb/index')
+            os.makedirs('kb/index', exist_ok=True)
+        
+        if os.path.exists('kb/uploads'):
+            shutil.rmtree('kb/uploads')
+            os.makedirs('kb/uploads', exist_ok=True)
         
         # Reset config to default and reload
         save_config(DEFAULT_CONFIG.copy())

@@ -49,3 +49,4 @@ Thumbs.db
 *.tmp
 .cache/
 agents.md
+kb/index/embeddings.npy

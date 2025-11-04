@@ -12,7 +12,7 @@
 # Open a shell inside the container
 lxc exec IntelliBot -- bash
 
-# Run a single command (preferred)
+# Run a single command
 lxc exec IntelliBot -- bash -lc "cd /workspace/IntelliBot && <command>"
 ```
 

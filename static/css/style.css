@@ -1,12 +1,67 @@
+html, body {
+    height: 100%;
+}
+
 body {
     background-color: #f5f5f5;
+    display: flex;
+    flex-direction: column;
+}
+
+body.status-overlay-open {
+    overflow: hidden;
+}
+
+.page-container {
+    flex: 1;
+}
+
+@media (min-width: 768px) {
+    .page-container .row {
+        min-height: calc(100vh - 88px);
+    }
+}
+
+#sidebar-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 0;
+}
+
+#sidebar-column .card {
+    flex-shrink: 0;
+}
+
+#chat-column {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.chat-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.chat-card .card-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 #chat-messages {
-    background-color: white;
+    background-color: #ffffff;
     border: 1px solid #dee2e6;
     border-radius: 0.25rem;
     padding: 1rem;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .message {
@@ -42,6 +97,12 @@ body {
     margin-top: 0.5rem;
 }
 
+.message-meta {
+    font-size: 0.75rem;
+    color: #6c757d;
+    margin-top: 0.35rem;
+}
+
 .source-link {
     font-size: 0.875rem;
     color: #0066cc;
@@ -52,26 +113,97 @@ body {
     font-size: 0.75rem;
 }
 
-#crawl-status {
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-}
-
-.status-success {
-    background-color: #d4edda;
-    color: #155724;
-}
-
-.status-error {
-    background-color: #f8d7da;
-    color: #721c24;
-}
-
-.status-info {
-    background-color: #d1ecf1;
-    color: #0c5460;
-}
-
 .card {
-    box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.stats-sources {
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.message-feedback {
+    border-top: 1px dashed #d8dee6;
+    margin-top: 0.75rem;
+    padding-top: 0.5rem;
+}
+
+.message-feedback .btn-group .btn,
+.message-feedback .btn,
+.message-feedback .btn-link {
+    font-size: 0.75rem;
+}
+
+.message-feedback .btn-link {
+    text-decoration: none;
+}
+
+.message-feedback .btn-link:hover {
+    text-decoration: underline;
+}
+
+.message-feedback .feedback-form textarea {
+    font-size: 0.8rem;
+}
+
+.status-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 10vh;
+    background: rgba(15, 23, 42, 0.55);
+    z-index: 2000;
+}
+
+.status-overlay.active {
+    display: flex;
+}
+
+.status-box {
+    background: rgba(17, 17, 17, 0.92);
+    color: #ffffff;
+    padding: 1.75rem;
+    border-radius: 0.75rem;
+    width: min(420px, 90vw);
+    box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.35);
+}
+
+.status-log {
+    max-height: 220px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+}
+
+.status-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.status-entry:last-child {
+    margin-bottom: 0;
+}
+
+.status-icon {
+    font-weight: 600;
+    min-width: 1rem;
+}
+
+.status-entry.status-info .status-icon {
+    color: #0dcaf0;
+}
+
+.status-entry.status-success .status-icon {
+    color: #20c997;
+}
+
+.status-entry.status-warning .status-icon {
+    color: #ffc107;
+}
+
+.status-entry.status-error .status-icon {
+    color: #ff6b6b;
 }
