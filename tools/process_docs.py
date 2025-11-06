@@ -4,15 +4,15 @@ import json
 from PyPDF2 import PdfReader
 from werkzeug.utils import secure_filename
 
-UPLOAD_DIR = "kb/uploads"
+UPLOAD_DIR_DEFAULT = "kb/uploads"
 
-def process_uploaded_documents(files, raw_dir="kb/raw"):
+def process_uploaded_documents(files, raw_dir="kb/raw", upload_dir=UPLOAD_DIR_DEFAULT, url_prefix="/uploads"):
     """
     Extract text from uploaded documents (markdown or PDF) and save as raw documents.
     Returns list of processed document info.
     """
     os.makedirs(raw_dir, exist_ok=True)
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(upload_dir, exist_ok=True)
     processed = []
     
     for file in files:
@@ -57,7 +57,7 @@ def process_uploaded_documents(files, raw_dir="kb/raw"):
                 doc_hash = hashlib.sha1(original_bytes).hexdigest()
                 safe_name = secure_filename(filename) or f"document_{doc_hash}"
                 stored_filename = f"{doc_hash}_{safe_name}"
-                stored_path = os.path.join(UPLOAD_DIR, stored_filename)
+                stored_path = os.path.join(upload_dir, stored_filename)
                 
                 with open(stored_path, 'wb') as upload_file:
                     upload_file.write(original_bytes)
@@ -65,7 +65,7 @@ def process_uploaded_documents(files, raw_dir="kb/raw"):
                 doc_file = os.path.join(raw_dir, f"{doc_hash}.json")
                 
                 doc_data = {
-                    "url": f"/uploads/{stored_filename}",
+                    "url": f"{url_prefix}/{stored_filename}",
                     "label": filename,
                     "text": text_content.strip()
                 }

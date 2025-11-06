@@ -4,10 +4,18 @@ from typing import List, Dict
 import numpy as np
 from openai import OpenAI
 
-RAW_DIR = "kb/raw"
-IDX_DIR = "kb/index"
+RAW_DIR_DEFAULT = "kb/raw"
+IDX_DIR_DEFAULT = "kb/index"
+CONFIG_PATH_DEFAULT = "config.json"
 
-def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
+def index_kb(
+    chunk_size=900,
+    chunk_overlap=150,
+    progress_callback=None,
+    raw_dir=RAW_DIR_DEFAULT,
+    index_dir=IDX_DIR_DEFAULT,
+    config_path=CONFIG_PATH_DEFAULT,
+):
     """Build vector index from crawled documents using OpenAI embeddings"""
     
     def chunk_text(text: str, url: str):
@@ -22,7 +30,7 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
 
     def load_docs() -> List[Dict]:
         docs = []
-        raw_files = glob.glob(os.path.join(RAW_DIR, "*.json"))
+        raw_files = glob.glob(os.path.join(raw_dir, "*.json"))
         if progress_callback:
             progress_callback('info', f"Loading {len(raw_files)} documents...")
         for fp in raw_files:
@@ -33,7 +41,7 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
                     docs.extend(chunk_text(text_content, j.get("url", "unknown")))
         return docs
 
-    os.makedirs(IDX_DIR, exist_ok=True)
+    os.makedirs(index_dir, exist_ok=True)
     
     if progress_callback:
         progress_callback('info', "Loading documents...")
@@ -76,17 +84,16 @@ def index_kb(chunk_size=900, chunk_overlap=150, progress_callback=None):
         progress_callback('info', "Saving index...")
     print("Saving index…")
 
-    np.save(os.path.join(IDX_DIR, "embeddings.npy"), X)
-    with open(os.path.join(IDX_DIR, "meta.json"), "w", encoding="utf-8") as f:
+    np.save(os.path.join(index_dir, "embeddings.npy"), X)
+    with open(os.path.join(index_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(docs, f, ensure_ascii=False)
     
-    config_file = "config.json"
-    if os.path.exists(config_file):
+    if config_path and os.path.exists(config_path):
         try:
-            with open(config_file, 'r') as f:
+            with open(config_path, 'r') as f:
                 config = json.load(f)
             config['similarity_threshold'] = 0.40
-            with open(config_file, 'w') as f:
+            with open(config_path, 'w') as f:
                 json.dump(config, f, indent=2)
             if progress_callback:
                 progress_callback('info', "Updated similarity threshold to 0.40 for OpenAI embeddings")

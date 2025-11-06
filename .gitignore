@@ -11,6 +11,11 @@ build/
 venv/
 env/
 .venv
+.venv-rasa/
+bots/
+bots_store/
+bots_legacy/
+kb_backup_*/
 
 # Knowledge base data
 kb/raw/*.json

@@ -4,10 +4,10 @@ import requests
 from bs4 import BeautifulSoup
 import trafilatura
 
-def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None):
+def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None, output_dir="kb/raw"):
     """Crawl a website and extract clean text from pages"""
     allowed_host = urllib.parse.urlparse(start_url).netloc
-    out_dir = "kb/raw"
+    out_dir = output_dir
     headers = {"User-Agent": "IntelliBot/1.0"}
     
     def normalize_url(url, base):

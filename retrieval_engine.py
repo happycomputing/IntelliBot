@@ -3,10 +3,9 @@ from typing import List, Dict, Tuple
 import numpy as np
 from openai import OpenAI
 
-IDX_DIR = "kb/index"
-
 class RetrievalEngine:
-    def __init__(self, similarity_threshold=0.45, top_k=4):
+    def __init__(self, index_dir="kb/index", similarity_threshold=0.45, top_k=4):
+        self.index_dir = index_dir
         self.similarity_threshold = similarity_threshold
         self.top_k = top_k
         self._loaded = False
@@ -19,11 +18,11 @@ class RetrievalEngine:
         if self._loaded:
             return
         
-        if not os.path.exists(os.path.join(IDX_DIR, "embeddings.npy")):
+        if not os.path.exists(os.path.join(self.index_dir, "embeddings.npy")):
             raise FileNotFoundError("No index found. Please crawl and index a website first.")
         
-        self.embeddings = np.load(os.path.join(IDX_DIR, "embeddings.npy"))
-        with open(os.path.join(IDX_DIR, "meta.json"), "r", encoding="utf-8") as f:
+        self.embeddings = np.load(os.path.join(self.index_dir, "embeddings.npy"))
+        with open(os.path.join(self.index_dir, "meta.json"), "r", encoding="utf-8") as f:
             self.meta = json.load(f)
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._loaded = True

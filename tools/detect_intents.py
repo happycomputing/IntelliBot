@@ -6,13 +6,13 @@ from openai import OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-def auto_detect_intents():
+def auto_detect_intents(raw_dir="kb/raw"):
     """
     Analyze indexed documents to automatically detect potential intents
     based on content structure and topics.
     Returns a list of suggested intents with descriptions and example patterns.
     """
-    raw_docs = glob.glob("kb/raw/*.json")
+    raw_docs = glob.glob(os.path.join(raw_dir, "*.json"))
     
     if not raw_docs:
         return {"error": "No documents indexed yet"}

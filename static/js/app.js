@@ -2,6 +2,556 @@ let statusOverlayActive = false;
 let statusHideTimer = null;
 let inlineStatusTimer = null;
 let chatHistoryLoaded = false;
+const ACTIVE_BOT_STORAGE_KEY = 'intellibot.activeBot';
+let bots = new Map();
+let activeBotId = null;
+let createBotModalInstance = null;
+let currentConfig = null;
+const DEFAULT_CLIENT_CONFIG = {
+  url: '',
+  max_pages: 500,
+  chunk_size: 900,
+  chunk_overlap: 150,
+  similarity_threshold: 0.4,
+  top_k: 4,
+};
+
+function getInputValue(id) {
+  const el = document.getElementById(id);
+  return el ? el.value : '';
+}
+
+function setInputValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) {
+    return;
+  }
+  el.value = value === undefined || value === null ? '' : value;
+}
+
+function applyConfigToForm(config = {}) {
+  const merged = { ...DEFAULT_CLIENT_CONFIG, ...config };
+  setInputValue('url-input', merged.url || '');
+  setInputValue('max-pages-input', merged.max_pages);
+  setInputValue('chunk-size-input', merged.chunk_size);
+  setInputValue('chunk-overlap-input', merged.chunk_overlap);
+  setInputValue('similarity-threshold', merged.similarity_threshold);
+  setInputValue('top-k', merged.top_k);
+}
+
+function collectConfigFromForm() {
+  const parseInteger = (value, fallback) => {
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  };
+  const parseFloatValue = (value, fallback) => {
+    const parsed = parseFloat(value);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  };
+
+  return {
+    url: getInputValue('url-input').trim(),
+    max_pages: parseInteger(getInputValue('max-pages-input'), DEFAULT_CLIENT_CONFIG.max_pages),
+    chunk_size: parseInteger(getInputValue('chunk-size-input'), DEFAULT_CLIENT_CONFIG.chunk_size),
+    chunk_overlap: parseInteger(getInputValue('chunk-overlap-input'), DEFAULT_CLIENT_CONFIG.chunk_overlap),
+    similarity_threshold: parseFloatValue(getInputValue('similarity-threshold'), DEFAULT_CLIENT_CONFIG.similarity_threshold),
+    top_k: parseInteger(getInputValue('top-k'), DEFAULT_CLIENT_CONFIG.top_k)
+  };
+}
+
+function loadConfig() {
+  if (normalizeBotId(activeBotId) === null) {
+    currentConfig = null;
+    applyConfigToForm({});
+    return Promise.resolve(null);
+  }
+
+  return fetch(`/api/config${buildBotQuery()}`)
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        const message = data && data.error ? data.error : 'Failed to load configuration.';
+        showStatus(message, 'error');
+        return null;
+      }
+      currentConfig = { ...data };
+      applyConfigToForm(currentConfig);
+      return currentConfig;
+    })
+    .catch(err => {
+      console.error('Unable to load config', err);
+      showStatus('Unable to load configuration.', 'error');
+      return null;
+    });
+}
+
+function saveConfig() {
+  if (!ensureBotSelected('Select a bot before applying settings.')) {
+    return;
+  }
+
+  const payload = collectConfigFromForm();
+  showStatus('Saving configuration…', 'info');
+
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId(payload))
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        const message = data && data.error ? data.error : 'Unable to save configuration.';
+        showStatus(message, 'error');
+        return;
+      }
+      const updated = data && data.config ? data.config : payload;
+      currentConfig = { ...updated };
+      applyConfigToForm(currentConfig);
+      showStatus('Configuration updated.', 'success');
+    })
+    .catch(err => {
+      console.error('Failed to save configuration', err);
+      showStatus('Unable to save configuration.', 'error');
+    });
+}
+
+function renderStats(stats) {
+  const statsCard = document.getElementById('stats-card');
+  const placeholder = document.getElementById('stats-placeholder');
+  if (!stats || stats.indexed === false) {
+    if (statsCard) statsCard.classList.add('d-none');
+    if (placeholder) placeholder.classList.remove('d-none');
+    return;
+  }
+
+  if (placeholder) placeholder.classList.add('d-none');
+  if (statsCard) statsCard.classList.remove('d-none');
+
+  const urlEl = document.getElementById('stat-url');
+  if (urlEl) {
+    urlEl.textContent = stats.configured_url ? stats.configured_url : 'No URL configured';
+  }
+
+  const rawDocsEl = document.getElementById('stat-raw-docs');
+  if (rawDocsEl) {
+    const rawDocs = typeof stats.raw_documents === 'number' ? stats.raw_documents : 0;
+    rawDocsEl.textContent = rawDocs.toLocaleString();
+  }
+
+  const chunksEl = document.getElementById('stat-chunks');
+  if (chunksEl) {
+    const chunks = typeof stats.total_chunks === 'number' ? stats.total_chunks : 0;
+    chunksEl.textContent = chunks.toLocaleString();
+  }
+
+  const sourcesEl = document.getElementById('stat-sources');
+  if (sourcesEl) {
+    const sources = Array.isArray(stats.document_sources) ? stats.document_sources : [];
+    if (sources.length === 0) {
+      sourcesEl.innerHTML = '<em>No documents loaded</em>';
+    } else {
+      const listHtml = sources.map((src, idx) => {
+        const href = src.url || '#';
+        const label = src.label || href;
+        const safeLabel = escapeHtml(String(label));
+        const safeHref = escapeHtml(String(href));
+        return `<div class="mb-1">
+            <a href="${safeHref}" target="_blank" rel="noopener noreferrer" class="source-link">
+              ${safeLabel}
+            </a>
+          </div>`;
+      }).join('');
+      sourcesEl.innerHTML = listHtml;
+    }
+  }
+}
+
+function loadStats() {
+  if (normalizeBotId(activeBotId) === null) {
+    renderStats(null);
+    return Promise.resolve(null);
+  }
+
+  return fetch(`/api/stats${buildBotQuery()}`)
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        const message = data && data.error ? data.error : 'Unable to load statistics.';
+        showStatus(message, 'error');
+        renderStats(null);
+        return null;
+      }
+      renderStats(data);
+      return data;
+    })
+    .catch(err => {
+      console.error('Unable to load statistics', err);
+      showStatus('Unable to load statistics.', 'error');
+      renderStats(null);
+      return null;
+    });
+}
+
+function addUserMessage(text, options = {}) {
+  const container = document.getElementById('chat-messages');
+  if (!container) {
+    return;
+  }
+
+  clearChatPlaceholder();
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message message-user';
+
+  const timestampText = options.timestamp ? formatTimestamp(options.timestamp) : '';
+  const safeText = escapeHtml(typeof text === 'string' ? text : '');
+
+  messageDiv.innerHTML = `
+        <div class="message-header">
+            <i class="bi bi-person-circle"></i> You
+        </div>
+        <div class="message-content">${safeText.replace(/\n/g, '<br>')}</div>
+        ${timestampText ? `<div class="message-meta">${escapeHtml(timestampText)}</div>` : ''}
+    `;
+  container.appendChild(messageDiv);
+
+  if (!options.suppressScroll) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function loadChatHistory(options = {}) {
+  const { force = false } = options;
+  if (chatHistoryLoaded && !force) {
+    return;
+  }
+
+  if (normalizeBotId(activeBotId) === null) {
+    resetChatView();
+    chatHistoryLoaded = true;
+    return;
+  }
+
+  fetch(`/api/conversations${buildBotQuery()}`)
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok) {
+        const message = data && data.error ? data.error : 'Unable to load chat history.';
+        showStatus(message, 'error');
+        resetChatView();
+        chatHistoryLoaded = false;
+        return;
+      }
+
+      const conversations = Array.isArray(data) ? data : (data.conversations || []);
+      const container = document.getElementById('chat-messages');
+      if (!container) {
+        return;
+      }
+
+      container.innerHTML = '';
+
+      if (!conversations.length) {
+        resetChatView();
+        chatHistoryLoaded = true;
+        return;
+      }
+
+      const ordered = [...conversations].reverse();
+      ordered.forEach(conv => {
+        if (conv.question) {
+          addUserMessage(conv.question, { timestamp: conv.timestamp, suppressScroll: true });
+        }
+        const botPayload = {
+          answer: conv.answer,
+          sources: conv.sources || [],
+          similarity_scores: conv.similarity_scores || [],
+          bot_id: conv.bot_id,
+          rasa: true
+        };
+        addBotMessage(botPayload, {
+          conversationId: conv.id,
+          timestamp: conv.timestamp,
+          feedback: conv.feedback || '',
+          suppressScroll: true
+        });
+      });
+
+      container.scrollTop = container.scrollHeight;
+      chatHistoryLoaded = true;
+    })
+    .catch(err => {
+      console.error('Unable to load chat history', err);
+      showStatus('Unable to load chat history.', 'error');
+      chatHistoryLoaded = false;
+    });
+}
+
+function normalizeBotId(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function matchesActiveBot(botId) {
+  return normalizeBotId(botId) === normalizeBotId(activeBotId);
+}
+
+function resetChatView() {
+  const container = document.getElementById('chat-messages');
+  if (!container) {
+    return;
+  }
+  const message = normalizeBotId(activeBotId) === null ? 'Select or create a bot to begin chatting.' : 'Welcome!';
+  container.innerHTML = `<div class="alert alert-info chat-placeholder">${message}</div>`;
+  chatHistoryLoaded = false;
+}
+
+function refreshBotScopedData(options = {}) {
+  const { resetChat = true } = options;
+  if (resetChat) {
+    resetChatView();
+  }
+  if (normalizeBotId(activeBotId) === null) {
+    const statsCard = document.getElementById('stats-card');
+    const placeholder = document.getElementById('stats-placeholder');
+    if (statsCard) statsCard.classList.add('d-none');
+    if (placeholder) placeholder.classList.remove('d-none');
+    const configFields = [
+      'url-input',
+      'max-pages-input',
+      'chunk-size-input',
+      'chunk-overlap-input',
+      'similarity-threshold',
+      'top-k'
+    ];
+    configFields.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.value = '';
+      }
+    });
+    updateBotDependentControls();
+    return;
+  }
+  updateBotDependentControls();
+  loadConfig();
+  loadStats();
+  loadChatHistory();
+  loadIntents();
+  loadPanelConversations();
+}
+
+function buildBotQuery(params = {}) {
+  const query = new URLSearchParams(params);
+  const botId = normalizeBotId(activeBotId);
+  if (botId !== null) {
+    query.set('bot_id', botId);
+  }
+  const queryString = query.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function attachBotId(payload = {}) {
+  const botId = normalizeBotId(activeBotId);
+  if (botId !== null) {
+    return { ...payload, bot_id: botId };
+  }
+  return { ...payload };
+}
+
+
+function updateBotDependentControls() {
+  const hasBot = normalizeBotId(activeBotId) !== null;
+  const dependentInputs = [
+    'url-input',
+    'max-pages-input',
+    'chunk-size-input',
+    'chunk-overlap-input',
+    'similarity-threshold',
+    'top-k',
+    'doc-upload',
+    'chat-input'
+  ];
+  dependentInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !hasBot;
+    }
+  });
+  const indexBtn = document.getElementById('index-btn');
+  if (indexBtn) indexBtn.disabled = !hasBot;
+  const saveBtn = document.getElementById('save-config-btn');
+  if (saveBtn) saveBtn.disabled = !hasBot;
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (sendBtn) sendBtn.disabled = !hasBot;
+  const clearBtn = document.getElementById('bot-clear-history-btn');
+  if (clearBtn) clearBtn.disabled = !hasBot;
+  const destroyBtn = document.getElementById('bot-destroy-btn');
+  if (destroyBtn) destroyBtn.disabled = !hasBot;
+}
+
+function setActiveBot(botId, options = {}) {
+  const normalized = normalizeBotId(botId);
+  const previous = normalizeBotId(activeBotId);
+  const shouldRefresh = options.refresh !== false;
+
+  if (normalized === null) {
+    activeBotId = null;
+    localStorage.removeItem(ACTIVE_BOT_STORAGE_KEY);
+    renderBotSelector();
+    updateBotDependentControls();
+    if (shouldRefresh) {
+      const resetChat = previous !== null;
+      refreshBotScopedData({ resetChat });
+    }
+    return;
+  }
+
+  if (!bots.has(normalized)) {
+    showStatus('Selected bot is not available. Reloading bots…', 'warning');
+    loadBots();
+    return;
+  }
+
+  activeBotId = normalized;
+  localStorage.setItem(ACTIVE_BOT_STORAGE_KEY, String(normalized));
+
+  renderBotSelector();
+  updateBotDependentControls();
+
+  if (shouldRefresh) {
+    const resetChat = previous !== normalized;
+    refreshBotScopedData({ resetChat });
+  }
+
+  if (options.focusChatInput) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+      setTimeout(() => input.focus(), 50);
+    }
+  }
+}
+
+function submitCreateBotForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const nameInput = form.querySelector('#create-bot-name');
+  const descInput = form.querySelector('#create-bot-description');
+  const submitBtn = form.querySelector('#create-bot-submit');
+  const name = (nameInput ? nameInput.value : '').trim();
+  const description = descInput ? descInput.value.trim() : '';
+
+  if (!name) {
+    showStatus('Bot name is required.', 'error');
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  showStatus('Creating bot…', 'info');
+
+  fetch('/api/bots', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description })
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
+    .then(({ ok, status, data }) => {
+      if (!ok) {
+        const message = data && data.error ? data.error : `Failed to create bot (status ${status})`;
+        showStatus(message, 'error');
+        return;
+      }
+      if (createBotModalInstance) {
+        createBotModalInstance.hide();
+      }
+      if (form) {
+        form.reset();
+      }
+      bots.set(data.id, data);
+      setActiveBot(data.id);
+      loadBots();
+      showStatus(`Bot "${data.name}" created.`, 'success');
+    })
+    .catch(err => {
+      console.error('Failed to create bot', err);
+      showStatus('Unable to create bot', 'error');
+    })
+    .finally(() => {
+      if (submitBtn) submitBtn.disabled = false;
+    });
+}
+
+function destroyActiveBot() {
+  if (!ensureBotSelected('Select a bot before destroying it.')) {
+    return;
+  }
+  const botId = normalizeBotId(activeBotId);
+  const bot = botId !== null ? bots.get(botId) : null;
+  const botName = bot && bot.name ? bot.name : 'this bot';
+  if (!confirm(`This will permanently delete "${botName}" and all of its trained data. Continue?`)) {
+    return;
+  }
+  showStatus('Destroying bot…', 'info');
+  fetch(`/api/bots/${botId}`, {
+    method: 'DELETE'
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        const message = data && data.error ? data.error : 'Failed to destroy bot.';
+        showStatus(message, 'error');
+        return;
+      }
+      bots.delete(botId);
+      if (normalizeBotId(activeBotId) === botId) {
+        activeBotId = null;
+        localStorage.removeItem(ACTIVE_BOT_STORAGE_KEY);
+        resetChatView();
+      }
+      updateBotDependentControls();
+      loadBots();
+      showStatus('Bot destroyed successfully.', 'success');
+    })
+    .catch(err => {
+      console.error('Failed to destroy bot', err);
+      showStatus('Unable to destroy bot', 'error');
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const modalEl = document.getElementById('createBotModal');
+  if (modalEl && typeof bootstrap !== 'undefined') {
+    createBotModalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalEl.addEventListener('hidden.bs.modal', () => {
+      const form = document.getElementById('create-bot-form');
+      if (form) {
+        form.reset();
+        const submitBtn = form.querySelector('#create-bot-submit');
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+  const createForm = document.getElementById('create-bot-form');
+  if (createForm) {
+    createForm.addEventListener('submit', submitCreateBotForm);
+  }
+  updateBotDependentControls();
+});
+
+
+function ensureBotSelected(message) {
+  const botId = normalizeBotId(activeBotId);
+  if (botId === null) {
+    if (message) {
+      showStatus(message, 'warning');
+    }
+    return false;
+  }
+  return true;
+}
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -148,314 +698,125 @@ function hideStatusOverlay() {
   clearTimeout(statusHideTimer);
 }
 
-const socket = io();
-
-socket.on('connect', () => {
-  console.log('Connected to server');
-  loadConfig();
-  loadStats();
-  loadChatHistory();
-});
-
-socket.on('chat_response', (data) => {
-  addBotMessage(data);
-});
-
-socket.on('crawl_status', (data) => {
-  updateCrawlStatus(data);
-  if (data.status === 'completed') {
-    loadStats();
-  }
-});
-
-socket.on('crawl_progress', (data) => {
-  updateProgressStatus(data);
-});
-
-socket.on('index_status', (data) => {
-  updateCrawlStatus(data);
-  if (data.status === 'completed') {
-    loadStats();
-    loadIntents();
-  }
-});
-
-socket.on('index_progress', (data) => {
-  updateProgressStatus(data);
-});
-
-function loadConfig() {
-  fetch('/api/config')
+function loadBots() {
+  fetch('/api/bots')
     .then(r => r.json())
-    .then(config => {
-      document.getElementById('url-input').value = config.url || '';
-      document.getElementById('max-pages-input').value = config.max_pages || 500;
-      document.getElementById('chunk-size-input').value = config.chunk_size || 900;
-      document.getElementById('chunk-overlap-input').value = config.chunk_overlap || 150;
-      document.getElementById('similarity-threshold').value = config.similarity_threshold || 0.52;
-      document.getElementById('top-k').value = config.top_k || 4;
-    });
-}
-
-function saveConfig() {
-    let url = document.getElementById('url-input').value.trim();
-    if (url && !/^https?:\/\//i.test(url)) {
-        url = `https://${url}`;
-        document.getElementById('url-input').value = url;
-    }
-    const config = {
-        url,
-        max_pages: parseInt(document.getElementById('max-pages-input').value),
-        chunk_size: parseInt(document.getElementById('chunk-size-input').value),
-        chunk_overlap: parseInt(document.getElementById('chunk-overlap-input').value),
-        similarity_threshold: parseFloat(document.getElementById('similarity-threshold').value),
-        top_k: parseInt(document.getElementById('top-k').value)
-  };
-
-  fetch('/api/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config)
-  })
-    .then(r => r.json())
-    .then(data => {
-      showStatus('Configuration saved successfully', 'success');
-    })
-    .catch(err => {
-      showStatus('Error saving configuration', 'error');
-    });
-}
-
-function loadStats() {
-  fetch('/api/stats')
-    .then(r => r.json())
-    .then(stats => {
-      const statsCard = document.getElementById('stats-card');
-      const placeholder = document.getElementById('stats-placeholder');
-      if (stats.indexed) {
-        if (statsCard) statsCard.classList.remove('d-none');
-        if (placeholder) placeholder.classList.add('d-none');
-      } else {
-        if (statsCard) statsCard.classList.add('d-none');
-        if (placeholder) placeholder.classList.remove('d-none');
+    .then(list => {
+      if (!Array.isArray(list)) {
+        return;
       }
+      const previousActive = normalizeBotId(activeBotId);
+      const previousCount = bots.size || 0;
 
-            const urlEl = document.getElementById('stat-url');
-            if (urlEl) {
-                let configuredUrl = stats.configured_url;
-                if (configuredUrl) {
-                    const trimmedUrl = configuredUrl.trim();
-                    const anchor = document.createElement('a');
-                    const isHttp = /^https?:\/\//i.test(trimmedUrl);
-                    urlEl.innerHTML = '';
-                    if (isHttp) {
-                        anchor.href = trimmedUrl;
-                        anchor.target = '_blank';
-                        anchor.rel = 'noopener';
-                        anchor.textContent = trimmedUrl;
-                        urlEl.appendChild(anchor);
-                    } else {
-                        anchor.href = '#';
-                        anchor.className = 'text-muted text-decoration-none';
-                        anchor.onclick = (event) => event.preventDefault();
-                        anchor.textContent = trimmedUrl;
-                        urlEl.appendChild(anchor);
-                    }
-                } else {
-                    urlEl.textContent = 'No URL configured';
-                }
-            }
-      const rawDocsEl = document.getElementById('stat-raw-docs');
-      if (rawDocsEl) {
-        rawDocsEl.textContent = stats.raw_documents || 0;
-      }
-      const chunksEl = document.getElementById('stat-chunks');
-      if (chunksEl) {
-        chunksEl.textContent = stats.total_chunks || 0;
-      }
+      bots = new Map(list.map(bot => [bot.id, bot]));
 
-      const sourcesDiv = document.getElementById('stat-sources');
-      if (sourcesDiv) {
-        if (stats.document_sources && stats.document_sources.length > 0) {
-          sourcesDiv.innerHTML = stats.document_sources.map(source => {
-            const isString = typeof source === 'string';
-            const href = isString ? source : (source.url || '#');
-            const label = isString ? source : (source.label || source.url || 'Document');
-            const safeHref = escapeHtml(href);
-            const safeLabel = escapeHtml(label);
-            return `<div class="mb-1">
-                            <i class="bi bi-link-45deg"></i>
-                            <a href="${safeHref}" target="_blank" rel="noopener" class="text-decoration-none">${safeLabel}</a>
-                        </div>`;
-          }).join('');
-        } else {
-          sourcesDiv.innerHTML = '<em>No documents loaded</em>';
-        }
-      }
-    });
-}
-
-function loadChatHistory() {
-  const container = document.getElementById('chat-messages');
-  if (!container) {
-    return;
-  }
-  fetch('/api/conversations')
-    .then(r => r.json())
-    .then(data => {
-      if (data.error) {
-        if (!chatHistoryLoaded) {
-          showStatus(data.error, 'warning');
+      if (bots.size === 0) {
+        activeBotId = null;
+        localStorage.removeItem(ACTIVE_BOT_STORAGE_KEY);
+        renderBotSelector();
+        updateBotDependentControls();
+        resetChatView();
+        if (previousCount > 0) {
+          showStatus('All bots removed. Create a new bot to begin.', 'warning');
         }
         return;
       }
-      const conversations = data.conversations || data;
-      if (!Array.isArray(conversations) || conversations.length === 0) {
-        chatHistoryLoaded = true;
-        return;
-      }
-      const sorted = conversations.slice().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      container.innerHTML = '';
-      sorted.forEach(conv => {
-        const scores = Array.isArray(conv.similarity_scores) ? conv.similarity_scores : [];
-        const confidence = scores.length ? Math.max(...scores) : undefined;
-        addUserMessage(conv.question, {
-          suppressScroll: true,
-          timestamp: conv.timestamp,
-          fromHistory: true
-        });
-        addBotMessage({
-          answer: conv.answer,
-          sources: conv.sources || [],
-          confidence,
-          conversation_id: conv.id
-        }, {
-          suppressScroll: true,
-          timestamp: conv.timestamp,
-          feedback: conv.feedback || ''
-        });
-      });
-      container.scrollTop = container.scrollHeight;
-      chatHistoryLoaded = true;
+
+      restoreActiveBotSelection();
+      renderBotSelector();
+      updateBotDependentControls();
+
+      const currentActive = normalizeBotId(activeBotId);
+      const resetChat = currentActive !== previousActive;
+      refreshBotScopedData({ resetChat });
     })
     .catch(err => {
-      console.error('Error loading chat history:', err);
-      if (!chatHistoryLoaded) {
-        showStatus('Unable to load chat history', 'warning');
-      }
+      console.error('Unable to load bots', err);
     });
 }
-
-function startCrawl() {
-  let url = document.getElementById('url-input').value.trim();
-  if (url && !/^https?:\/\//i.test(url)) {
-    url = `https://${url}`;
-  }
-  const maxPages = parseInt(document.getElementById('max-pages-input').value);
-
-  if (!url) {
-    showStatus('Please enter a URL', 'error');
+function restoreActiveBotSelection() {
+  const stored = localStorage.getItem(ACTIVE_BOT_STORAGE_KEY);
+  let candidate = normalizeBotId(stored);
+  if (candidate !== null && bots.has(candidate)) {
+    activeBotId = candidate;
     return;
   }
 
-  beginStatusSession('Crawling website');
-  appendStatusLine(`Preparing to crawl ${url}`, 'info');
-
-  fetch('/api/crawl', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, max_pages: maxPages })
-  })
-    .then(r => r.json())
-    .then(data => {
-      appendStatusLine('Crawl started…', 'info');
-    })
-    .catch(err => {
-      console.error(err);
-      completeStatusSession('Failed to start crawl', 'error', { autoHide: false });
-    });
-}
-
-function startIndexing() {
-  const url = document.getElementById('url-input').value;
-  const maxPages = parseInt(document.getElementById('max-pages-input').value);
-  const chunkSize = parseInt(document.getElementById('chunk-size-input').value);
-  const chunkOverlap = parseInt(document.getElementById('chunk-overlap-input').value);
-  const similarityThreshold = parseFloat(document.getElementById('similarity-threshold').value);
-  const topK = parseInt(document.getElementById('top-k').value, 10);
-  const fileInput = document.getElementById('doc-upload');
-
-  const formData = new FormData();
-  formData.append('url', url || '');
-  formData.append('max_pages', maxPages);
-  formData.append('chunk_size', chunkSize);
-  formData.append('chunk_overlap', chunkOverlap);
-  if (!Number.isNaN(similarityThreshold)) {
-    formData.append('similarity_threshold', similarityThreshold);
-  }
-  if (!Number.isNaN(topK)) {
-    formData.append('top_k', topK);
-  }
-
-  if (fileInput.files.length > 0) {
-    for (let i = 0; i < fileInput.files.length; i++) {
-      formData.append('documents', fileInput.files[i]);
+  candidate = null;
+  for (const bot of bots.values()) {
+    if (bot.status === 'ready') {
+      candidate = bot.id;
+      break;
     }
   }
+  if (candidate === null) {
+    const iterator = bots.values().next();
+    if (!iterator.done) {
+      candidate = iterator.value.id;
+    }
+  }
+  activeBotId = candidate;
+  if (candidate === null) {
+    localStorage.removeItem(ACTIVE_BOT_STORAGE_KEY);
+  } else {
+    localStorage.setItem(ACTIVE_BOT_STORAGE_KEY, String(candidate));
+  }
+}
 
-  if (!url && fileInput.files.length === 0) {
-    showStatus('Please provide a URL or upload documents', 'error');
+function upsertBot(bot) {
+  if (!bot || typeof bot.id === 'undefined') {
+    return;
+  }
+  const previous = bots.get(bot.id);
+  bots.set(bot.id, bot);
+  if (activeBotId === null && bot.status === 'ready') {
+    activeBotId = bot.id;
+    localStorage.setItem(ACTIVE_BOT_STORAGE_KEY, String(bot.id));
+  }
+  const isActive = normalizeBotId(activeBotId) === normalizeBotId(bot.id);
+  const statusChanged = previous && previous.status !== bot.status;
+  renderBotSelector();
+  updateBotDependentControls();
+  if (isActive && statusChanged && bot.status === 'ready') {
+    refreshBotScopedData({ resetChat: false });
+  }
+}
+
+function renderBotSelector() {
+  const select = document.getElementById('bot-selector');
+  if (!select) {
     return;
   }
 
-  beginStatusSession('Building knowledge base');
-  appendStatusLine('Submitting indexing request…', 'info');
+  const active = normalizeBotId(activeBotId);
+  select.innerHTML = '';
 
-  fetch('/api/index_all', {
-    method: 'POST',
-    body: formData
-  })
-    .then(r => r.json())
-    .then(data => {
-      fileInput.value = '';
-    })
-    .catch(err => {
-      appendStatusLine('Error starting indexing', 'error');
-      completeStatusSession('Failed to start indexing', 'error', { autoHide: false });
-      console.error(err);
-    });
-}
-
-function sendMessage() {
-  const input = document.getElementById('chat-input');
-  const message = input.value.trim();
-
-  if (!message) return;
-
-  addUserMessage(message);
-  socket.emit('chat_message', { message });
-  input.value = '';
-}
-
-function addUserMessage(text, options = {}) {
-  const container = document.getElementById('chat-messages');
-  if (!container) {
-    return;
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select a bot…';
+  placeholder.disabled = true;
+  if (active === null) {
+    placeholder.selected = true;
   }
-  clearChatPlaceholder();
-  const messageDiv = document.createElement('div');
-  messageDiv.className = 'message message-user';
-  const timestampText = options.timestamp ? formatTimestamp(options.timestamp) : '';
-  messageDiv.innerHTML = `
-        <div class="message-header">
-            <i class="bi bi-person-circle"></i> You
-        </div>
-        <div class="message-content">${escapeHtml(text)}</div>
-        ${timestampText ? `<div class="message-meta">${escapeHtml(timestampText)}</div>` : ''}
-    `;
-  container.appendChild(messageDiv);
-  if (!options.suppressScroll) {
-    container.scrollTop = container.scrollHeight;
+  select.appendChild(placeholder);
+
+  const sortedBots = Array.from(bots.values()).sort((a, b) => {
+    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+  });
+
+  sortedBots.forEach(bot => {
+    const option = document.createElement('option');
+    option.value = String(bot.id);
+    const statusLabel = (bot.status || 'unknown').replace(/_/g, ' ');
+    option.textContent = `${bot.name || 'Bot'} (${statusLabel})`;
+    if (normalizeBotId(bot.id) === active) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+
+  if (active === null) {
+    select.value = '';
   }
 }
 
@@ -466,7 +827,11 @@ function addBotMessage(data, options = {}) {
   }
   clearChatPlaceholder();
   const messageDiv = document.createElement('div');
-  messageDiv.className = 'message message-bot';
+  const isRasa = Boolean(data && data.rasa);
+  const botInfo = isRasa && data && data.bot_id ? bots.get(data.bot_id) : null;
+  const botLabel = botInfo && botInfo.name ? botInfo.name : (isRasa ? 'Rasa Bot' : 'IntelliBot');
+  const headerIcon = isRasa ? 'bi-diagram-3' : 'bi-robot';
+  messageDiv.className = `message message-bot${isRasa ? ' message-bot-rasa' : ''}`;
   const conversationId = data.conversation_id || options.conversationId || null;
   if (conversationId) {
     messageDiv.dataset.conversationId = conversationId;
@@ -497,9 +862,11 @@ function addBotMessage(data, options = {}) {
   const confidenceBadge = confidenceValue !== null && confidenceValue > 0.5 ? 'bg-success' : 'bg-warning';
   const timestampText = options.timestamp ? formatTimestamp(options.timestamp) : '';
   const answerText = typeof data.answer === 'string' ? data.answer : '';
+  const rasaBadge = isRasa ? '<span class="badge bg-secondary ms-2">Rasa</span>' : '';
   messageDiv.innerHTML = `
         <div class="message-header">
-            <i class="bi bi-robot"></i> IntelliBot
+            <i class="bi ${headerIcon}"></i> ${escapeHtml(botLabel)}
+            ${rasaBadge}
             ${confidenceValue !== null && confidenceValue > 0 ? `<span class="badge ${confidenceBadge} confidence-badge ms-auto">${confidencePercent}% confidence</span>` : ''}
         </div>
         <div class="message-content">${escapeHtml(answerText).replace(/\n/g, '<br>')}</div>
@@ -599,7 +966,7 @@ function submitConversationFeedback(conversationId, feedback) {
   fetch(`/api/conversations/${conversationId}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ feedback })
+    body: JSON.stringify(attachBotId({ feedback }))
   })
     .then(r => r.json())
     .then(data => {
@@ -701,7 +1068,13 @@ function updateProgressStatus(data) {
 }
 
 function clearBot() {
-  if (!confirm('⚠️ WARNING: This will permanently delete ALL crawled data, the search index, conversation history, and reset all settings to defaults.\n\nAre you absolutely sure you want to continue?')) {
+  if (!ensureBotSelected('Select a bot before clearing data.')) {
+    return;
+  }
+  const confirmation = `⚠️ WARNING: This will permanently delete ALL crawled data, the search index, conversation history, and reset all settings to defaults.
+
+Are you absolutely sure you want to continue?`;
+  if (!confirm(confirmation)) {
     return;
   }
 
@@ -710,33 +1083,23 @@ function clearBot() {
 
   fetch('/api/clear-bot', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId({}))
   })
-    .then(r => r.json())
-    .then(data => {
-      if (data.status === 'success') {
-        appendStatusLine('Bot data cleared successfully.', 'success');
-        completeStatusSession('Bot reset to defaults.', 'success');
-        showStatus('Bot data cleared and reset.', 'success');
-        loadConfig();
-        loadStats();
-        document.getElementById('chat-messages').innerHTML = `
-                <div class="alert alert-info chat-placeholder">
-                    Welcome! This chatbot only answers questions based on the indexed website content. 
-                    Configure the URL, crawl the site, and build the index to get started.
-                </div>
-            `;
-        chatHistoryLoaded = false;
-        const historyEl = document.getElementById('conversation-history');
-        if (historyEl) {
-          historyEl.innerHTML = '<p class="text-muted small">No conversations yet.</p>';
-        }
-      } else {
-        const errorMsg = data.message || 'Unknown error clearing bot.';
-        appendStatusLine(errorMsg, 'error');
-        completeStatusSession('Failed to clear bot.', 'error', { autoHide: false });
-        showStatus(`Error clearing bot: ${errorMsg}`, 'error');
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || data.status !== 'success') {
+        const message = data && data.message ? data.message : 'Failed to clear bot data.';
+        appendStatusLine(message, 'error');
+        completeStatusSession('Bot reset failed.', 'error', { autoHide: false });
+        showStatus(message, 'error');
+        return;
       }
+      appendStatusLine('Bot data cleared successfully.', 'success');
+      completeStatusSession('Bot reset to defaults.', 'success');
+      showStatus('Bot data cleared and reset.', 'success');
+      refreshBotScopedData();
+      loadBots();
     })
     .catch(err => {
       console.error(err);
@@ -746,14 +1109,20 @@ function clearBot() {
     });
 }
 
+
+
 function clearConversationHistory() {
+  if (!ensureBotSelected('Select a bot before clearing chat history.')) {
+    return;
+  }
   if (!confirm('Are you sure you want to delete all conversation history? This cannot be undone.')) {
     return;
   }
 
   fetch('/api/clear-conversations', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId({}))
   })
     .then(r => r.json())
     .then(data => {
@@ -763,8 +1132,11 @@ function clearConversationHistory() {
         if (historyContainer) {
           historyContainer.innerHTML = '<p class="text-muted small">No conversations yet.</p>';
         }
+        resetChatView();
+        loadChatHistory();
+        loadPanelConversations();
       } else {
-        showStatus('Error clearing history: ' + data.message, 'error');
+        showStatus('Error clearing history: ' + (data.message || 'Unknown error'), 'error');
       }
     })
     .catch(err => {
@@ -774,7 +1146,14 @@ function clearConversationHistory() {
 }
 
 function loadConversations() {
-  fetch('/api/conversations')
+  if (normalizeBotId(activeBotId) === null) {
+    const container = document.getElementById('conversation-history');
+    if (container) {
+      container.innerHTML = '<p class="text-muted small">Select or create a bot to view conversations.</p>';
+    }
+    return;
+  }
+  fetch(`/api/conversations${buildBotQuery()}`)
     .then(r => r.json())
     .then(data => {
       const container = document.getElementById('conversation-history');
@@ -826,13 +1205,16 @@ function loadConversations() {
 }
 
 function saveFeedback(convId) {
+  if (!ensureBotSelected()) {
+    return;
+  }
   const feedbackInput = document.getElementById(`feedback-${convId}`);
   const feedback = feedbackInput.value.trim();
 
   fetch(`/api/conversations/${convId}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ feedback })
+    body: JSON.stringify(attachBotId({ feedback }))
   })
     .then(r => r.json())
     .then(data => {
@@ -863,11 +1245,25 @@ function openIntelligencePanel() {
 }
 
 function loadPanelConversations() {
-  fetch('/api/conversations')
-    .then(r => r.json())
-    .then(data => {
+  if (normalizeBotId(activeBotId) === null) {
+    renderPanelConversations([]);
+    return;
+  }
+  const query = buildBotQuery();
+  fetch(`/api/conversations${query}`)
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok && data && data.error) {
+        showStatus(data.error, 'warning');
+        allConversations = [];
+        renderPanelConversations(allConversations);
+        return;
+      }
       allConversations = data.conversations || data;
       renderPanelConversations(allConversations);
+    })
+    .catch(err => {
+      console.error('Unable to load panel conversations', err);
     });
 }
 
@@ -906,32 +1302,40 @@ function filterConversations() {
 }
 
 function autoDetectIntents() {
+  if (!ensureBotSelected('Select a bot before detecting intents.')) {
+    return;
+  }
   beginStatusSession('Auto-detecting intents');
   appendStatusLine('Analyzing indexed content…', 'info');
-  fetch('/api/auto-detect-intents', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      if (data.status === 'error') {
-        const errorMsg = data.error || 'Unable to detect intents.';
+  fetch('/api/auto-detect-intents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId({}))
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || data.status === 'error') {
+        const errorMsg = (data && data.error) || 'Unable to detect intents.';
         appendStatusLine(errorMsg, 'error');
         completeStatusSession('Intent detection failed.', 'error', { autoHide: false });
         showStatus(`Error detecting intents: ${errorMsg}`, 'error');
         return Promise.reject('handled');
       }
 
-      appendStatusLine(`Detected ${data.intents.length} potential intents.`, 'success');
+      const intents = data.intents || [];
+      appendStatusLine(`Detected ${intents.length} potential intents.`, 'success');
 
-      const promises = data.intents.map(intent =>
+      const promises = intents.map(intent =>
         fetch('/api/intents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: JSON.stringify(attachBotId({
             name: intent.name,
             description: intent.description,
             patterns: intent.patterns || [],
             examples: intent.examples || [],
             auto_detected: true
-          })
+          }))
         })
       );
 
@@ -954,11 +1358,24 @@ function autoDetectIntents() {
 }
 
 function loadIntents() {
-  fetch('/api/intents')
-    .then(r => r.json())
-    .then(data => {
-      allIntents = data;
-      renderIntents(data);
+  if (normalizeBotId(activeBotId) === null) {
+    renderIntents([]);
+    return;
+  }
+  const query = buildBotQuery();
+  fetch(`/api/intents${query}`)
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok && data && data.error) {
+        showStatus(data.error, 'error');
+        renderIntents([]);
+        return;
+      }
+      allIntents = Array.isArray(data) ? data : (data.intents || []);
+      renderIntents(allIntents);
+    })
+    .catch(err => {
+      console.error('Unable to load intents', err);
     });
 }
 
@@ -1056,6 +1473,9 @@ function cancelCreateIntent() {
 }
 
 function createIntent() {
+  if (!ensureBotSelected('Select a bot before creating intents.')) {
+    return;
+  }
   const name = document.getElementById('new-intent-name').value.trim();
   const description = document.getElementById('new-intent-desc').value.trim();
   const patterns = document.getElementById('new-intent-patterns').value.split(',').map(p => p.trim()).filter(p => p);
@@ -1069,27 +1489,38 @@ function createIntent() {
   fetch('/api/intents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description, patterns, examples })
+    body: JSON.stringify(attachBotId({ name, description, patterns, examples }))
   })
-    .then(r => r.json())
-    .then(data => {
-      if (data.error) {
-        alert('Error: ' + data.error);
-      } else {
-        cancelCreateIntent();
-        loadIntents();
-        showStatus('✓ Intent created!', 'success');
-        setTimeout(() => showStatus('', 'info'), 2000);
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        alert('Error: ' + (data && data.error ? data.error : 'Unable to create intent.'));
+        return;
       }
+      cancelCreateIntent();
+      loadIntents();
+      showStatus('✓ Intent created!', 'success');
+      setTimeout(() => showStatus('', 'info'), 2000);
     });
 }
 
 function deleteIntent(intentId) {
+  if (!ensureBotSelected('Select a bot before deleting intents.')) {
+    return;
+  }
   if (!confirm('Delete this intent?')) return;
 
-  fetch(`/api/intents/${intentId}`, { method: 'DELETE' })
-    .then(r => r.json())
-    .then(data => {
+  fetch(`/api/intents/${intentId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId({}))
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        showStatus('Error deleting intent: ' + (data && data.error ? data.error : 'Unknown error'), 'error');
+        return;
+      }
       loadIntents();
       showStatus('✓ Intent deleted', 'success');
       setTimeout(() => showStatus('', 'info'), 2000);
@@ -1109,6 +1540,9 @@ function toggleResponses(idx) {
 }
 
 function editIntent(intentId) {
+  if (!ensureBotSelected('Select a bot before editing intents.')) {
+    return;
+  }
   const intent = allIntents.find(i => i.id === intentId);
   if (!intent) return;
 
@@ -1144,39 +1578,47 @@ function editIntent(intentId) {
   fetch(`/api/intents/${intentId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: JSON.stringify(attachBotId({
       action_type: newActionType,
       responses: responsesList
-    })
+    }))
   })
-    .then(r => r.json())
-    .then(data => {
-      if (data.error) {
-        alert('Error: ' + data.error);
-      } else {
-        loadIntents();
-        showStatus('✓ Intent updated!', 'success');
-        setTimeout(() => showStatus('', 'info'), 2000);
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        alert('Error: ' + (data && data.error ? data.error : 'Unable to update intent.'));
+        return;
       }
+      loadIntents();
+      showStatus('✓ Intent updated!', 'success');
+      setTimeout(() => showStatus('', 'info'), 2000);
     });
 }
 
 function previewHybrid(intentId) {
+  if (!ensureBotSelected('Select a bot to preview intents.')) {
+    return;
+  }
   const intent = allIntents.find(i => i.id === intentId);
   if (!intent || intent.action_type !== 'hybrid') return;
 
   showStatus('⟳ Generating preview...', 'info');
 
-  fetch(`/api/intents/${intentId}/preview`, { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      if (data.error) {
-        alert('Error: ' + data.error);
+  fetch(`/api/intents/${intentId}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId({}))
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        alert('Error: ' + (data && data.error ? data.error : 'Unable to generate preview.'));
         showStatus('', 'info');
         return;
       }
 
-      const previewHtml = data.previews.map((p, i) => `
+      const previews = data.previews || [];
+      const previewHtml = previews.map((p, i) => `
                 <div class="mb-3">
                     <strong>Template ${i + 1}:</strong>
                     <div class="p-2 bg-light rounded mb-2"><small>${escapeHtml(p.template)}</small></div>
@@ -1215,7 +1657,10 @@ function previewHybrid(intentId) {
 }
 
 function exportTrainingData() {
-  fetch('/api/training-export')
+  if (!ensureBotSelected('Select a bot before exporting training data.')) {
+    return;
+  }
+  fetch(`/api/training-export${buildBotQuery()}`)
     .then(r => r.json())
     .then(data => {
       if (data.error) {
@@ -1232,3 +1677,67 @@ function exportTrainingData() {
       setTimeout(() => showStatus('', 'info'), 2000);
     });
 }
+
+const socket = io();
+
+socket.on('connect', () => {
+  console.log('Connected to server');
+  loadConfig();
+  loadStats();
+  loadChatHistory();
+  loadBots();
+});
+
+socket.on('chat_response', (data) => {
+  if (!matchesActiveBot(data.bot_id)) {
+    return;
+  }
+  addBotMessage(data);
+});
+
+socket.on('crawl_status', (data) => {
+  if (!matchesActiveBot(data.bot_id)) {
+    return;
+  }
+  updateCrawlStatus(data);
+  if (data.status === 'completed') {
+    loadStats();
+  }
+});
+
+socket.on('crawl_progress', (data) => {
+  if (!matchesActiveBot(data.bot_id)) {
+    return;
+  }
+  updateProgressStatus(data);
+});
+
+socket.on('index_status', (data) => {
+  if (!matchesActiveBot(data.bot_id)) {
+    return;
+  }
+  updateCrawlStatus(data);
+  if (data.status === 'completed') {
+    loadStats();
+    loadIntents();
+  }
+});
+
+socket.on('index_progress', (data) => {
+  if (!matchesActiveBot(data.bot_id)) {
+    return;
+  }
+  updateProgressStatus(data);
+});
+
+socket.on('bot_update', (data) => {
+  if (data && data.deleted) {
+    const id = normalizeBotId(data.id);
+    if (id !== null) {
+      bots.delete(id);
+    }
+  } else if (data) {
+    upsertBot(data);
+  }
+  loadBots();
+});

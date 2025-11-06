@@ -78,7 +78,7 @@
               <input type="file" class="form-control form-control-sm" id="doc-upload" multiple accept=".md,.pdf">
               <small class="text-muted">Markdown or PDF files</small>
             </div>
-            <button class="btn btn-success w-100 mb-2" onclick="startIndexing()">
+            <button class="btn btn-success w-100 mb-2" id="index-btn" onclick="startIndexing()">
               <i class="bi bi-lightning"></i> Index Knowledge Base
             </button>
             <div class="alert alert-warning py-2 px-2 small mb-2">
@@ -102,7 +102,7 @@
               <label class="form-label">Top K Results</label>
               <input type="number" class="form-control" id="top-k" value="4">
             </div>
-            <button class="btn btn-info w-100" onclick="saveConfig()">
+            <button class="btn btn-info w-100" id="save-config-btn" onclick="saveConfig()">
               <i class="bi bi-check2"></i> Apply Settings
             </button>
           </div>
@@ -111,8 +111,27 @@
 
       <div class="col-md-9 d-flex flex-column" id="chat-column">
         <div class="card chat-card">
-          <div class="card-header bg-dark text-white">
-            <i class="bi bi-chat-dots"></i> Chat Interface
+          <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-chat-dots"></i> Chat Interface</span>
+            <div class="d-flex align-items-center gap-2 flex-wrap text-end">
+              <div class="d-flex align-items-center gap-2">
+                <label for="bot-selector" class="form-label text-white mb-0 small">Bot</label>
+                <select class="form-select form-select-sm w-auto" id="bot-selector" onchange="setActiveBot(this.value)">
+                  <option value="" disabled>Select a bot…</option>
+                </select>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="modal" data-bs-target="#createBotModal" title="Create new bot" aria-label="Create new bot">
+                  <i class="bi bi-plus-circle"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-light" type="button" id="bot-clear-history-btn" onclick="clearConversationHistory()" title="Clear chat history" aria-label="Clear chat history">
+                  <i class="bi bi-trash"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-light" type="button" id="bot-destroy-btn" onclick="destroyActiveBot()" title="Destroy bot" aria-label="Destroy bot">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+              </div>
+            </div>
           </div>
           <div class="card-body d-flex flex-column">
             <div id="chat-messages" class="flex-grow-1 overflow-auto mb-3">
@@ -129,7 +148,7 @@
             <div class="input-group">
               <input type="text" class="form-control" id="chat-input" placeholder="Ask a question..."
                 onkeypress="if(event.key==='Enter')sendMessage()">
-              <button class="btn btn-primary" onclick="sendMessage()">
+              <button class="btn btn-primary" id="chat-send-btn" onclick="sendMessage()">
                 <i class="bi bi-send"></i> Send
               </button>
             </div>
@@ -139,9 +158,36 @@
     </div>
   </div>
 
+  <div class="modal fade" id="createBotModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="create-bot-form">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-diagram-3"></i> Create New Bot</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label for="create-bot-name" class="form-label">Bot Name</label>
+              <input type="text" class="form-control" id="create-bot-name" placeholder="Customer Support" required>
+            </div>
+            <div class="mb-3">
+              <label for="create-bot-description" class="form-label">Description (optional)</label>
+              <input type="text" class="form-control" id="create-bot-description" placeholder="What will this bot be used for?">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="create-bot-submit">Create Bot</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Bot Intelligence Panel Button -->
   <button class="btn btn-primary btn-lg" id="intelligence-panel-btn"
-    style="position: fixed; bottom: 20px; right: 20px; border-radius: 50%; width: 60px; height: 60px; z-index: 1000;"
+    style="position: fixed; bottom: 60px; right: 20px; border-radius: 50%; width: 60px; height: 60px; z-index: 1000;"
     onclick="openIntelligencePanel()">
     <i class="bi bi-robot" style="font-size: 24px;"></i>
   </button>
