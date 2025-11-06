@@ -118,5 +118,24 @@ lxc exec IntelliBot -- bash -lc "curl -I http://127.0.0.1:80/health"
 - If the bind mount breaks permissions, reapply shift and restart:
   `lxc config device set IntelliBot code shift true && lxc restart IntelliBot`.
 - Access the app via `http://10.130.0.134/` (or container name if DNS is configured); open firewall routes as needed.
-- Application behaviour and deployment expectations live in `README.md` and `replit.md`; keep both documents current whenever we change features or ops steps.
 - Git discipline: Do not commit to the repository unless asked.
+
+
+## Current App Snapshot (Nov 2025)
+
+- Rasa only: every chatbot runs from a dedicated Rasa project under `bots_store/<slug>`; the legacy project now lives in `bots_legacy/` for reference.
+- Multi-bot aware: `intellibot.db` stores bots, conversations, and intents per bot; most API calls expect a `bot_id`.
+- Knowledge base per bot: indexed data, uploads, and config live under `kb/<slug>/...`; the web UI posts to `/api/config`, `/api/index`, `/api/crawl` with the active bot attached.
+- Runtime flow: Gunicorn + Eventlet hosts Flask/Socket.IO; chat turns call `run_rasa_turn`, which shells into `.venv-rasa` to query each bot's trained model.
+- Frontend UX: users pick/create bots via the header selector; stats/config panels update when a bot is ready; chat history (with feedback controls) reloads on connect.
+- Ops checklist after changes: re-run `.venv/bin/pip install -r requirements.txt` if dependencies change, then `systemctl restart intellibot.service`; hit `/health` for a quick verify.
+
+## Container Permissions
+
+- Persistent user inside container: `pieter` (UID/GID 1001). Systemd runs `intellibot.service` as this user so that everything under `/workspace/IntelliBot` stays writable from the host.
+- Use the helper: `./scripts/container-dev.sh` …
+  - With a command: `./scripts/container-dev.sh "pip install -r requirements.txt"`
+  - Without args, you get an interactive shell as `pieter` inside the container.
+- When root privileges are required (e.g. `apt`, `chown`, service tweaks), run: `lxc exec IntelliBot -- sudo ...` and afterwards ensure ownership stays on UID/GID 1001 (rerun `chown -R 1001:1001 /workspace/IntelliBot` if needed).
+- Keep `lxc config device set IntelliBot code shift true` enabled so the host/container UID mapping stays aligned; after applying it, restart the container.
+
