@@ -1,7 +1,7 @@
 {
-  "url": "",
-  "max_pages": 500,
-  "chunk_size": 900,
+  "url": "https://www.officems.co.za/",
+  "max_pages": 5,
+  "chunk_size": 600,
   "chunk_overlap": 150,
   "similarity_threshold": 0.4,
   "top_k": 4

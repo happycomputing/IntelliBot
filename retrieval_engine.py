@@ -68,7 +68,8 @@ class RetrievalEngine:
             used.add(url)
             snippet = doc["text"].strip()
             snippet = (snippet[:600] + "…") if len(snippet) > 600 else snippet
-            parts.append(f"{snippet}\n\nSource: {url}")
+            title = doc.get("title") or url
+            parts.append(f"{title}\n{snippet}\n\nSource: {url}")
             if len(parts) >= 2:
                 break
         return "\n\n---\n\n".join(parts)

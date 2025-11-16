@@ -1,94 +1,273 @@
 #!/usr/bin/env python3
-import os, re, time, json, urllib.parse, hashlib, sys
+import os
+import re
+import sys
+import time
+import json
+import hashlib
+import urllib.parse
+import datetime
+import collections
+import xml.etree.ElementTree as ET
 import requests
-from bs4 import BeautifulSoup
 import trafilatura
+from typing import Optional, Callable, Dict, Any, Iterable, List
+from urllib import robotparser
+from bs4 import BeautifulSoup
 
-def crawl_site(start_url, max_pages=500, timeout=12, progress_callback=None, output_dir="kb/raw"):
-    """Crawl a website and extract clean text from pages"""
-    allowed_host = urllib.parse.urlparse(start_url).netloc
-    out_dir = output_dir
-    headers = {"User-Agent": "IntelliBot/1.0"}
-    
-    def normalize_url(url, base):
-        u = urllib.parse.urljoin(base, url.split("#")[0])
-        p = urllib.parse.urlparse(u)
-        if p.netloc != allowed_host:
-            return None
-        if p.scheme not in ("http", "https"):
-            return None
-        return urllib.parse.urlunparse((p.scheme, p.netloc, p.path.rstrip("/"), "", "", ""))
 
-    def fetch(url):
-        try:
-            r = requests.get(url, headers=headers, timeout=timeout)
-            if r.status_code == 200 and "text/html" in r.headers.get("Content-Type",""):
-                return r.text
-        except requests.RequestException as e:
-            if progress_callback:
-                progress_callback('warning', f"Failed to fetch {url}: {str(e)}")
-        return None
+UserAgent = "IntelliBot/1.0"
+ProgressCallback = Optional[Callable[[str, str], None]]
 
-    def extract_clean(html, url):
-        txt = trafilatura.extract(html, url=url, output_format="txt", include_links=False) or ""
-        if not txt.strip():
-            soup = BeautifulSoup(html, "html.parser")
-            for s in soup(["script","style","noscript"]): s.decompose()
-            txt = soup.get_text(" ", strip=True)
-        txt = re.sub(r"\s+\n", "\n", re.sub(r"[ \t]+", " ", txt)).strip()
-        return txt
 
-    def save_doc(url, text):
-        os.makedirs(out_dir, exist_ok=True)
-        hid = hashlib.sha1(url.encode()).hexdigest()[:16]
-        with open(os.path.join(out_dir, f"{hid}.json"), "w", encoding="utf-8") as f:
-            json.dump({"url": url, "text": text}, f, ensure_ascii=False)
+def _notify(callback: ProgressCallback, kind: str, message: str) -> None:
+  if callback:
+    callback(kind, message)
 
-    normalized_start = normalize_url(start_url, start_url)
-    to_visit = [normalized_start] if normalized_start else [start_url]
-    seen = set()
-    pages = 0
-    crawled_urls = []
-    
-    if progress_callback:
-        progress_callback('info', f"Starting crawl of {start_url} (max {max_pages} pages)")
-    
-    while to_visit and pages < max_pages:
-        url = to_visit.pop(0)
-        if url in seen: 
-            continue
-        seen.add(url)
-        
-        if progress_callback and len(seen) % 5 == 0:
-            progress_callback('info', f"Crawling... {pages} pages saved, {len(seen)} URLs visited, {len(to_visit)} queued")
-        
-        html = fetch(url)
-        if not html: 
-            continue
-        text = extract_clean(html, url)
-        if len(text) > 50:
-            save_doc(url, text)
-            pages += 1
-            crawled_urls.append({"url": url, "chars": len(text)})
-            print(f"[{pages}] {url} ({len(text)} chars)")
-            if progress_callback:
-                progress_callback('success', f"Saved page {pages}: {url[:60]}... ({len(text)} chars)")
-        elif len(text) > 0 and progress_callback:
-            progress_callback('warning', f"Skipped {url[:50]}... (only {len(text)} chars - may be JS-rendered)")
-        soup = BeautifulSoup(html, "html.parser")
-        for a in soup.find_all("a", href=True):
-            nu = normalize_url(a["href"], url)
-            if nu and nu not in seen:
-                to_visit.append(nu)
-        time.sleep(0.25)
-    
-    final_msg = f"Done. Saved {pages} pages to {out_dir}"
-    print(final_msg)
-    if progress_callback:
-        progress_callback('complete', final_msg)
-    return {"pages": pages, "urls": crawled_urls}
+
+def _clean_text(html: str, url: str) -> str:
+  text = trafilatura.extract(
+    html,
+    url=url,
+    output_format="txt",
+    include_links=False
+  ) or ""
+  if text.strip():
+    return _normalize_whitespace(text)
+  soup = BeautifulSoup(html, "html.parser")
+  for node in soup(["script", "style", "noscript"]):
+    node.decompose()
+  text = soup.get_text(" ", strip=True)
+  return _normalize_whitespace(text)
+
+
+def _normalize_whitespace(text: str) -> str:
+  text = re.sub(r"[ \t]+", " ", text)
+  text = re.sub(r"\s+\n", "\n", text)
+  return text.strip()
+
+
+def _save_document(out_dir: str, payload: Dict[str, Any]) -> None:
+  os.makedirs(out_dir, exist_ok=True)
+  content_hash = payload.get("content_hash")
+  hash_prefix = content_hash[:16] if content_hash else hashlib.sha1(
+    payload["url"].encode()
+  ).hexdigest()[:16]
+  path = os.path.join(out_dir, f"{hash_prefix}.json")
+  with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
+def _canonical_url(soup: BeautifulSoup, url: str) -> str:
+  link = soup.find("link", {"rel": "canonical"})
+  if not link or not link.get("href"):
+    return url
+  candidate = urllib.parse.urljoin(url, link["href"])
+  return candidate.strip() or url
+
+
+def _collect_headings(soup: BeautifulSoup) -> Dict[str, List[str]]:
+  headings: Dict[str, List[str]] = {"h1": [], "h2": [], "h3": []}
+  for level in headings.keys():
+    for node in soup.find_all(level):
+      text = _normalize_whitespace(node.get_text(" ", strip=True))
+      if text:
+        headings[level].append(text)
+  return headings
+
+
+def _allowed_url(parser: Optional[robotparser.RobotFileParser], url: str) -> bool:
+  if not parser:
+    return True
+  try:
+    return parser.can_fetch(UserAgent, url)
+  except Exception:
+    return True
+
+
+def _load_robot_parser(start_url: str, timeout: int) -> Optional[robotparser.RobotFileParser]:
+  parsed = urllib.parse.urlparse(start_url)
+  robots_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
+  parser = robotparser.RobotFileParser()
+  try:
+    parser.set_url(robots_url)
+    parser.read()
+    return parser
+  except Exception:
+    return None
+
+
+def _iter_sitemap_urls(parser: Optional[robotparser.RobotFileParser], timeout: int) -> Iterable[str]:
+  if not parser:
+    return []
+  sitemap_urls = parser.site_maps() or []
+  for sitemap_url in sitemap_urls:
+    try:
+      response = requests.get(sitemap_url, headers={"User-Agent": UserAgent}, timeout=timeout)
+      if response.status_code != 200:
+        continue
+      for url in _parse_sitemap(response.text):
+        yield url
+    except requests.RequestException:
+      continue
+
+
+def _parse_sitemap(data: str) -> Iterable[str]:
+  try:
+    tree = ET.fromstring(data)
+  except ET.ParseError:
+    return []
+  namespace = ""
+  if tree.tag.startswith("{"):
+    namespace = tree.tag.split("}", 1)[0] + "}"
+  urls = []
+  for elem in tree.findall(f"{namespace}url/{namespace}loc"):
+    if elem.text:
+      urls.append(elem.text.strip())
+  return urls
+
+
+def _same_host(candidate: str, host: str) -> bool:
+  parsed = urllib.parse.urlparse(candidate)
+  return parsed.netloc == host and parsed.scheme in ("http", "https")
+
+
+def _normalize_url(url: str, base: str) -> Optional[str]:
+  merged = urllib.parse.urljoin(base, url.split("#")[0])
+  parsed = urllib.parse.urlparse(merged)
+  if not parsed.scheme or not parsed.netloc:
+    return None
+  return urllib.parse.urlunparse(
+    (parsed.scheme, parsed.netloc, parsed.path.rstrip("/") or "/", "", "", "")
+  )
+
+
+def crawl_site(
+  start_url: str,
+  max_pages: int = 500,
+  timeout: int = 12,
+  progress_callback: ProgressCallback = None,
+  output_dir: str = "kb/raw",
+  include_sitemaps: bool = True,
+  respect_robots: bool = True
+) -> Dict[str, Any]:
+  """Crawl a website and extract structured page metadata."""
+  parsed_start = urllib.parse.urlparse(start_url)
+  allowed_host = parsed_start.netloc
+  if not allowed_host:
+    raise ValueError(f"Invalid start URL: {start_url}")
+
+  parser = _load_robot_parser(start_url, timeout) if respect_robots else None
+  queue = collections.deque()
+  seen: Dict[str, str] = {}
+
+  start_normalized = _normalize_url(start_url, start_url)
+  if start_normalized:
+    queue.append(start_normalized)
+
+  if include_sitemaps:
+    for sitemap_url in _iter_sitemap_urls(parser, timeout):
+      normalized = _normalize_url(sitemap_url, sitemap_url)
+      if normalized and _same_host(normalized, allowed_host):
+        queue.append(normalized)
+
+  stored_pages = 0
+  crawled = []
+
+  _notify(progress_callback, "info", f"Starting crawl of {start_url} (max {max_pages} pages)")
+
+  while queue and stored_pages < max_pages:
+    url = queue.popleft()
+    if url in seen:
+      continue
+    seen[url] = "queued"
+
+    if respect_robots and not _allowed_url(parser, url):
+      _notify(progress_callback, "warning", f"Skipped {url} (robots.txt)")
+      continue
+
+    try:
+      response = requests.get(url, headers={"User-Agent": UserAgent}, timeout=timeout)
+    except requests.RequestException as exc:
+      _notify(progress_callback, "warning", f"Failed to fetch {url}: {exc}")
+      continue
+
+    if response.status_code != 200:
+      _notify(progress_callback, "warning", f"Skipped {url}: HTTP {response.status_code}")
+      continue
+
+    content_type = response.headers.get("Content-Type", "")
+    if "text/html" not in content_type:
+      _notify(progress_callback, "info", f"Ignored {url}: unsupported content-type {content_type}")
+      continue
+
+    html = response.text
+    soup = BeautifulSoup(html, "html.parser")
+    canonical = _canonical_url(soup, url)
+    if canonical != url and canonical in seen:
+      continue
+    seen[canonical] = "fetched"
+    seen[url] = "fetched"
+
+    text = _clean_text(html, canonical)
+    if len(text) < 80:
+      _notify(progress_callback, "warning", f"Skipped {canonical} (insufficient text)")
+      continue
+
+    title = soup.title.get_text(strip=True) if soup.title else ""
+    meta_description = ""
+    meta = soup.find("meta", attrs={"name": "description"})
+    if meta and meta.get("content"):
+      meta_description = _normalize_whitespace(meta["content"])
+
+    headings = _collect_headings(soup)
+    content_hash = hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+    payload = {
+      "url": canonical,
+      "original_url": url,
+      "title": title,
+      "meta_description": meta_description,
+      "headings": headings,
+      "extracted_at": datetime.datetime.utcnow().isoformat() + "Z",
+      "text": text,
+      "content_hash": content_hash,
+      "source_type": "crawl",
+      "content_type": content_type,
+      "status_code": response.status_code
+    }
+    _save_document(output_dir, payload)
+    stored_pages += 1
+    crawled.append({"url": canonical, "chars": len(text), "title": title})
+
+    _notify(progress_callback, "success", f"Saved page {stored_pages}: {canonical[:70]} ({len(text)} chars)")
+
+    for link in soup.find_all("a", href=True):
+      normalized = _normalize_url(link["href"], canonical)
+      if not normalized:
+        continue
+      if not _same_host(normalized, allowed_host):
+        continue
+      if normalized in seen:
+        continue
+      queue.append(normalized)
+
+    time.sleep(0.2)
+
+    if len(seen) % 10 == 0:
+      _notify(
+        progress_callback,
+        "info",
+        f"Crawling... {stored_pages} pages saved, {len(seen)} URLs visited, {len(queue)} queued"
+      )
+
+  final_msg = f"Done. Saved {stored_pages} pages to {output_dir}"
+  print(final_msg)
+  _notify(progress_callback, "complete", final_msg)
+  return {"pages": stored_pages, "urls": crawled}
+
 
 if __name__ == "__main__":
-    start_url = sys.argv[1] if len(sys.argv) > 1 else "https://www.officems.co.za/"
-    max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 500
-    crawl_site(start_url, max_pages)
+  start = sys.argv[1] if len(sys.argv) > 1 else "https://www.officems.co.za/"
+  limit = int(sys.argv[2]) if len(sys.argv) > 2 else 500
+  crawl_site(start, limit)

@@ -6,6 +6,9 @@ import json
 import glob
 import shutil
 import subprocess
+import threading
+import yaml
+import logging
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 from flask_socketio import SocketIO, emit
@@ -14,6 +17,7 @@ from retrieval_engine import RetrievalEngine
 from tools.crawl_site import crawl_site
 from tools.index_kb import index_kb
 from tools.process_docs import process_uploaded_documents
+from tools.profile_builder import build_company_profile
 from models import db, Conversation, Intent, Bot
 from bot_manager import (
     rasa_available,
@@ -27,12 +31,16 @@ from bot_manager import (
     init_rasa_project,
     train_rasa_project,
 )
-import threading
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
+app.logger.setLevel(logging.INFO)
+if not app.logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    app.logger.addHandler(handler)
 
 # Enable development-centric settings when requested
 env_setting = os.environ.get('INTELLIBOT_ENV', os.environ.get('FLASK_ENV', '')).lower()
@@ -118,6 +126,7 @@ def get_storage_paths(bot=None):
     raw_dir = os.path.join(base_abs, 'raw')
     index_dir = os.path.join(base_abs, 'index')
     uploads_dir = os.path.join(base_abs, 'uploads')
+    profile_path = os.path.join(base_abs, 'profile.yaml')
 
     return {
         'base_dir': base_abs,
@@ -125,6 +134,7 @@ def get_storage_paths(bot=None):
         'index_dir': index_dir,
         'uploads_dir': uploads_dir,
         'config_path': config_abs,
+        'profile_path': profile_path,
     }
 
 
@@ -141,10 +151,6 @@ def ensure_storage_dirs(paths):
 
 def run_background_task(target, *args, **kwargs):
     """Helper to start daemonised background work."""
-    if hasattr(eventlet, 'spawn_n'):
-        # Prefer eventlet greenlets when available to avoid thread scheduling issues
-        eventlet.spawn_n(target, *args, **kwargs)
-        return None
     thread = threading.Thread(target=target, args=args, kwargs=kwargs, daemon=True)
     thread.start()
     return thread
@@ -305,6 +311,7 @@ def train_bot_project(bot_id, project_path):
     """Background task to run rasa train for a bot."""
     with app.app_context():
         abs_path = ensure_absolute_project_path(project_path)
+        app.logger.info("Running rasa train for bot %s using model path %s", bot_id, abs_path)
         success, error = train_rasa_project(abs_path)
         bot = Bot.query.get(bot_id)
         if not bot:
@@ -489,6 +496,31 @@ def get_stats():
     config = load_config(bot)
     stats['configured_url'] = config.get('url', '')
     stats['bot_id'] = bot.id if bot else None
+
+    profile_path = storage.get('profile_path')
+    if profile_path and os.path.exists(profile_path):
+        try:
+            with open(profile_path, 'r', encoding='utf-8') as profile_file:
+                profile_data = yaml.safe_load(profile_file) or {}
+            stats['profile'] = {
+                'company_name': profile_data.get('company_name'),
+                'brand_voice': profile_data.get('brand_voice'),
+                'summary': profile_data.get('summary'),
+                'contact': profile_data.get('contact')
+            }
+        except Exception as exc:
+            stats['profile'] = {'error': str(exc)}
+
+    stats_path = os.path.join(storage['index_dir'], 'stats.json')
+    if os.path.exists(stats_path):
+        try:
+            with open(stats_path, 'r', encoding='utf-8') as stats_file:
+                index_stats = json.load(stats_file) or {}
+            for key in ('new_embeddings', 'reused_embeddings', 'last_indexed_at'):
+                if key in index_stats:
+                    stats[key] = index_stats[key]
+        except Exception:
+            pass
     
     return jsonify(stats)
 
@@ -677,11 +709,19 @@ def index_all():
 
     def combined_task():
         try:
+            profile_generated = False
+            profile_data = {}
+            detection_result = {}
             progress('info', 'Clearing previous knowledge base...')
             for path in (storage['raw_dir'], storage['index_dir'], storage['uploads_dir']):
                 if os.path.exists(path):
                     shutil.rmtree(path)
                 os.makedirs(path, exist_ok=True)
+            if os.path.exists(storage['profile_path']):
+                try:
+                    os.remove(storage['profile_path'])
+                except OSError:
+                    pass
 
             if url:
                 progress('info', f'Learning from website: {url}...')
@@ -712,6 +752,22 @@ def index_all():
                 )
                 progress('success', f"Processed {len(processed)} documents")
 
+            knowledge_docs = glob.glob(os.path.join(storage['raw_dir'], "*.json"))
+            if knowledge_docs:
+                try:
+                    profile_data = build_company_profile(
+                        raw_dir=storage['raw_dir'],
+                        output_path=storage['profile_path'],
+                        brand_voice='professional',
+                        progress_callback=progress
+                    )
+                    profile_generated = True
+                    progress('success', f"Profile ready for {profile_data.get('company_name', 'company')}")
+                except Exception as exc:
+                    progress('warning', f"Profile generation skipped: {exc}")
+            else:
+                progress('warning', 'No knowledge documents available for profile generation.')
+
             progress('info', 'Building knowledge index...')
 
             def index_progress_cb(status_type, msg):
@@ -726,8 +782,18 @@ def index_all():
                 config_path=storage['config_path'],
             )
             get_retrieval(bot)._loaded = False
+            index_result['profile_generated'] = profile_generated
+            if profile_generated:
+                index_result['profile_summary'] = {
+                    'company_name': profile_data.get('company_name'),
+                    'summary': profile_data.get('summary'),
+                    'brand_voice': profile_data.get('brand_voice')
+                }
 
             intents_detected = 0
+            detection_result = {}
+            rasa_summary = {}
+            training_started = False
             if DB_AVAILABLE:
                 progress('info', 'Detecting intents from indexed knowledge...')
                 from tools.detect_intents import auto_detect_intents
@@ -736,13 +802,19 @@ def index_all():
 
                 with app.app_context():
                     try:
-                        detection_result = auto_detect_intents(raw_dir=storage['raw_dir'])
+                        detection_result = auto_detect_intents(
+                            raw_dir=storage['raw_dir'],
+                            profile_path=storage['profile_path'],
+                            brand_voice='professional'
+                        )
                     except Exception as e:
                         progress('warning', f"Intent detection failed: {e}")
                         detection_result = {'status': 'error', 'error': str(e)}
 
                     if detection_result.get('status') == 'success':
                         suggested_intents = detection_result.get('intents', []) or []
+                        if detection_result.get('profile_used'):
+                            progress('info', 'Company profile applied to intent drafting.')
                         if suggested_intents:
                             try:
                                 Intent.query.filter_by(auto_detected=True, bot_id=bot.id if bot else None).delete(synchronize_session=False)
@@ -764,18 +836,36 @@ def index_all():
                                     db.session.flush()
 
                                 description = intent_data.get('description', '')
+                                notes = intent_data.get('required_context')
+                                if notes:
+                                    description = f"{description}\nNotes: {notes}".strip()
+
                                 patterns = intent_data.get('patterns') or []
                                 if isinstance(patterns, str):
                                     patterns = [p.strip() for p in patterns.split(',') if p.strip()]
+
                                 examples = intent_data.get('examples') or []
                                 if isinstance(examples, str):
                                     examples = [line.strip() for line in examples.splitlines() if line.strip()]
 
                                 defaults = ActionHandler.get_default_responses_for_intent(name, description)
-                                responses = intent_data.get('responses')
-                                if responses is None or isinstance(responses, str):
+                                canonical_response = (intent_data.get('canonical_response') or '').strip()
+                                source_urls = intent_data.get('source_urls') or []
+                                if isinstance(source_urls, str):
+                                    source_urls = [source_urls]
+                                cleaned_sources = [s for s in source_urls if s]
+
+                                responses = []
+                                action_type = 'static'
+                                if canonical_response:
+                                    response_text = canonical_response
+                                    if cleaned_sources:
+                                        joined_sources = "\n".join(f"- {src}" for src in cleaned_sources)
+                                        response_text = f"{response_text}\n\nSources:\n{joined_sources}"
+                                    responses = [response_text]
+                                else:
                                     responses = defaults['responses']
-                                action_type = intent_data.get('action_type') or defaults['action_type']
+                                    action_type = defaults['action_type']
 
                                 intent = Intent(
                                     bot_id=bot.id if bot else None,
@@ -799,14 +889,70 @@ def index_all():
                                 progress('warning', f"Failed to save auto intents: {e}")
                                 intents_detected = 0
                         else:
-                            progress('warning', 'No intents detected from content.')
+                                progress('warning', 'No intents detected from content.')
                     elif detection_result.get('error'):
                         progress('warning', detection_result['error'])
             else:
                 progress('warning', 'Database unavailable: skipping intent detection.')
                 intents_detected = 0
+                detection_result = {}
+
+            builder_profile = profile_data or {}
+            if not builder_profile and os.path.exists(storage['profile_path']):
+                try:
+                    with open(storage['profile_path'], 'r', encoding='utf-8') as pf:
+                        builder_profile = yaml.safe_load(pf) or {}
+                except Exception as exc:
+                    progress('warning', f"Could not load profile for Rasa assets: {exc}")
+                    builder_profile = {}
+
+            auto_train_enabled = os.environ.get('INDEX_AUTO_TRAIN', '0').lower() in ('1', 'true', 'yes')
+
+            if bot and DB_AVAILABLE:
+                try:
+                    with app.app_context():
+                        intent_records = Intent.query.filter_by(bot_id=bot.id, enabled=True).all()
+                        project_abs = ensure_absolute_project_path(bot.project_path)
+                        from tools.rasa_builder import build_rasa_assets
+                        rasa_summary = build_rasa_assets(
+                            project_path=project_abs,
+                            intents=intent_records,
+                            profile=builder_profile,
+                            similarity_threshold=similarity_threshold,
+                            top_k=top_k,
+                        )
+                    progress('success', f"Rasa assets updated ({rasa_summary.get('knowledge_intents', 0)} knowledge intents).")
+                except Exception as exc:
+                    rasa_summary = {'error': str(exc)}
+                    progress('warning', f"Failed to build Rasa assets: {exc}")
+
+                if auto_train_enabled and rasa_summary and not rasa_summary.get('error'):
+                    with app.app_context():
+                        try:
+                            bot_entry = Bot.query.get(bot.id)
+                            if bot_entry:
+                                app.logger.info("Starting training for bot %s", bot_entry.id)
+                                bot_entry.status = BOT_STATUS_TRAINING
+                                bot_entry.last_error = ''
+                                bot_entry.updated_at = datetime.utcnow()
+                                db.session.commit()
+                                emit_bot_update(bot_entry)
+                                train_bot_project(bot_entry.id, bot_entry.project_path)
+                                training_started = True
+                                progress('info', 'Training Rasa model completed.')
+                            else:
+                                progress('warning', 'Bot record missing; skipping training trigger.')
+                        except Exception as exc:
+                            training_started = False
+                            db.session.rollback()
+                            progress('warning', f"Failed to start Rasa training: {exc}")
+                elif not auto_train_enabled:
+                    app.logger.info("Skipping automatic training for bot %s (INDEX_AUTO_TRAIN disabled)", bot.id)
 
             index_result['intents_detected'] = intents_detected
+            index_result['profile_used_for_intents'] = bool(detection_result.get('profile_used')) if isinstance(detection_result, dict) else False
+            index_result['rasa_assets'] = rasa_summary
+            index_result['rasa_training_started'] = training_started
             index_result['bot_id'] = bot.id if bot else None
             progress('success', f"✓ Knowledge base ready! {index_result['total_chunks']} chunks indexed")
             socketio.emit('index_status', {

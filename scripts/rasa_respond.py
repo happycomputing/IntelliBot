@@ -11,9 +11,9 @@ from rasa.core.agent import Agent
 
 
 async def interact(model_path: str, message: str, sender_id: str):
-    agent = await Agent.load(model_path)
+    agent = Agent.load(model_path)
     try:
-        nlu_data = await agent.parse_message_using_nlu_interpreter(message)
+        nlu_data = await agent.parse_message(message)
         responses = await agent.handle_text(message, sender_id=sender_id)
     finally:
         shutdown = getattr(agent, 'shutdown', None)

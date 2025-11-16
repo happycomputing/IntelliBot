@@ -7,6 +7,8 @@ let bots = new Map();
 let activeBotId = null;
 let createBotModalInstance = null;
 let currentConfig = null;
+let botInitOverlayActive = false;
+const botStatusCache = new Map();
 const DEFAULT_CLIENT_CONFIG = {
   url: '',
   max_pages: 500,
@@ -57,6 +59,134 @@ function collectConfigFromForm() {
     similarity_threshold: parseFloatValue(getInputValue('similarity-threshold'), DEFAULT_CLIENT_CONFIG.similarity_threshold),
     top_k: parseInteger(getInputValue('top-k'), DEFAULT_CLIENT_CONFIG.top_k)
   };
+}
+
+function getBot(botId) {
+  const normalized = normalizeBotId(botId);
+  if (normalized === null) {
+    return null;
+  }
+  return bots.get(normalized) || null;
+}
+
+function getActiveBot() {
+  return getBot(activeBotId);
+}
+
+function updateBotStatusBanner(bot) {
+  const banner = document.getElementById('bot-status-banner');
+  if (!banner) {
+    return;
+  }
+
+  if (!bot) {
+    banner.classList.add('d-none');
+    banner.textContent = '';
+    return;
+  }
+
+  const status = (bot.status || '').toLowerCase();
+  const name = bot.name || 'Bot';
+  let message = '';
+  let cssClass = 'alert alert-info small';
+
+  switch (status) {
+    case 'initializing':
+      cssClass = 'alert alert-info small';
+      message = `"${name}" is initialising. This may take up to a minute.`;
+      break;
+    case 'training':
+      cssClass = 'alert alert-warning small';
+      message = `"${name}" is training a new model…`;
+      break;
+    case 'ready':
+      cssClass = 'alert alert-success small';
+      message = `"${name}" is ready to chat.`;
+      break;
+    case 'idle':
+      cssClass = 'alert alert-info small';
+      message = `"${name}" is idle. Index the knowledge base to train it.`;
+      break;
+    case 'error':
+      cssClass = 'alert alert-danger small';
+      message = bot.last_error
+        ? `Setup error for "${name}": ${bot.last_error}`
+        : `"${name}" encountered an error during setup.`;
+      break;
+    default:
+      if (!status) {
+        banner.classList.add('d-none');
+        banner.textContent = '';
+        return;
+      }
+      cssClass = 'alert alert-secondary small';
+      message = `"${name}" status: ${status}.`;
+      break;
+  }
+
+  banner.className = cssClass;
+  banner.innerHTML = `<i class="bi bi-info-circle me-2"></i>${escapeHtml(message)}`;
+  banner.classList.remove('d-none');
+}
+
+function handleBotLifecycle(bot, { force = false } = {}) {
+  if (!bot) {
+    return;
+  }
+  const status = (bot.status || '').toLowerCase();
+  const name = bot.name || 'Bot';
+  const previousStatus = botStatusCache.get(bot.id);
+  if (!force && previousStatus === status) {
+    return;
+  }
+  botStatusCache.set(bot.id, status);
+
+  const notify = (msg, level = 'info') => showStatus(msg, level);
+
+  if (status === 'initializing') {
+    notify(`"${name}" is initialising. We'll let you know when it's ready.`, 'info');
+    if (!statusOverlayActive && !botInitOverlayActive) {
+      beginStatusSession(`Initialising ${name}…`);
+      appendStatusLine('Preparing Rasa workspace…', 'info');
+      botInitOverlayActive = true;
+    } else if (botInitOverlayActive) {
+      appendStatusLine('Still setting things up…', 'info');
+    } else if (statusOverlayActive) {
+      appendStatusLine(`Initialising ${name}…`, 'info');
+    }
+    return;
+  }
+
+  if (status === 'error') {
+    const errMsg = bot.last_error
+      ? `Error for "${name}": ${bot.last_error}`
+      : `"${name}" encountered an error.`;
+    notify(errMsg, 'error');
+    if (botInitOverlayActive) {
+      completeStatusSession(errMsg, 'error', { autoHide: false });
+      botInitOverlayActive = false;
+    }
+    return;
+  }
+
+  if (botInitOverlayActive && (status === 'ready' || status === 'idle')) {
+    completeStatusSession(`"${name}" is ready.`, 'success');
+    botInitOverlayActive = false;
+  }
+
+  if (status === 'training') {
+    notify(`"${name}" is training a new model…`, 'info');
+    return;
+  }
+
+  if (status === 'ready') {
+    notify(`"${name}" is ready.`, 'success');
+    return;
+  }
+
+  if (status === 'idle') {
+    notify(`"${name}" is idle and ready for indexing.`, 'info');
+  }
 }
 
 function loadConfig() {
@@ -119,14 +249,34 @@ function saveConfig() {
 function renderStats(stats) {
   const statsCard = document.getElementById('stats-card');
   const placeholder = document.getElementById('stats-placeholder');
+  const configCard = document.getElementById('config-card');
+  const showConfigBtn = document.getElementById('show-config-btn');
   if (!stats || stats.indexed === false) {
     if (statsCard) statsCard.classList.add('d-none');
     if (placeholder) placeholder.classList.remove('d-none');
+    if (configCard) {
+      configCard.classList.remove('d-none');
+      delete configCard.dataset.forceVisible;
+    }
+    if (showConfigBtn) {
+      showConfigBtn.classList.add('d-none');
+    }
     return;
   }
 
   if (placeholder) placeholder.classList.add('d-none');
   if (statsCard) statsCard.classList.remove('d-none');
+  if (configCard) {
+    const forced = configCard.dataset && configCard.dataset.forceVisible === 'true';
+    configCard.classList.toggle('d-none', !forced);
+    if (!forced) {
+      delete configCard.dataset.forceVisible;
+    }
+  }
+  if (showConfigBtn) {
+    const forced = configCard && configCard.dataset && configCard.dataset.forceVisible === 'true';
+    showConfigBtn.classList.toggle('d-none', Boolean(forced));
+  }
 
   const urlEl = document.getElementById('stat-url');
   if (urlEl) {
@@ -143,6 +293,43 @@ function renderStats(stats) {
   if (chunksEl) {
     const chunks = typeof stats.total_chunks === 'number' ? stats.total_chunks : 0;
     chunksEl.textContent = chunks.toLocaleString();
+  }
+
+  const newEmbeddingsEl = document.getElementById('stat-new-embeddings');
+  if (newEmbeddingsEl) {
+    const newEmbeddings = typeof stats.new_embeddings === 'number' ? stats.new_embeddings : 0;
+    newEmbeddingsEl.textContent = newEmbeddings.toLocaleString();
+  }
+
+  const reusedEmbeddingsEl = document.getElementById('stat-reused-embeddings');
+  if (reusedEmbeddingsEl) {
+    const reusedEmbeddings = typeof stats.reused_embeddings === 'number' ? stats.reused_embeddings : 0;
+    reusedEmbeddingsEl.textContent = reusedEmbeddings.toLocaleString();
+  }
+
+  const profileEl = document.getElementById('stat-profile');
+  if (profileEl) {
+    const profile = stats.profile;
+    if (profile && profile.error) {
+      profileEl.innerHTML = `<span class="text-danger">${escapeHtml(String(profile.error))}</span>`;
+    } else if (profile && profile.company_name) {
+      const name = escapeHtml(String(profile.company_name));
+      const summary = profile.summary ? escapeHtml(String(profile.summary)) : 'No summary available.';
+      const voice = profile.brand_voice ? escapeHtml(String(profile.brand_voice)) : 'professional';
+      const contact = profile.contact && typeof profile.contact === 'object' ? profile.contact : {};
+      const contactLines = ['phone', 'email', 'website', 'address']
+        .map(key => contact[key] ? `<div>${escapeHtml(key.charAt(0).toUpperCase() + key.slice(1))}: ${escapeHtml(String(contact[key]))}</div>` : '')
+        .filter(Boolean)
+        .join('');
+      const voiceBadge = `<span class="badge bg-info text-dark">Voice: ${voice}</span>`;
+      profileEl.innerHTML = `
+        <div><strong>${name}</strong> ${voiceBadge}</div>
+        <div class="mt-1">${summary}</div>
+        ${contactLines ? `<div class="mt-1">${contactLines}</div>` : ''}
+      `;
+    } else {
+      profileEl.innerHTML = '<em>Profile not generated</em>';
+    }
   }
 
   const sourcesEl = document.getElementById('stat-sources');
@@ -362,9 +549,143 @@ function attachBotId(payload = {}) {
   return { ...payload };
 }
 
+function startIndexing() {
+  if (!ensureBotSelected('Select a bot before indexing.')) {
+    return;
+  }
+
+  const botId = normalizeBotId(activeBotId);
+  const indexBtn = document.getElementById('index-btn');
+  if (indexBtn) {
+    indexBtn.disabled = true;
+  }
+
+  const configCard = document.getElementById('config-card');
+  if (configCard) {
+    configCard.dataset.forceVisible = 'true';
+    configCard.classList.remove('d-none');
+  }
+  const showConfigBtn = document.getElementById('show-config-btn');
+  if (showConfigBtn) {
+    showConfigBtn.classList.add('d-none');
+  }
+
+  const formData = new FormData();
+  formData.append('bot_id', botId);
+
+  const urlInput = document.getElementById('url-input');
+  const maxPagesInput = document.getElementById('max-pages-input');
+  const chunkSizeInput = document.getElementById('chunk-size-input');
+  const chunkOverlapInput = document.getElementById('chunk-overlap-input');
+  const similarityInput = document.getElementById('similarity-threshold');
+  const topKInput = document.getElementById('top-k');
+
+  const urlValue = urlInput && typeof urlInput.value === 'string' ? urlInput.value.trim() : '';
+  if (urlValue) {
+    formData.append('url', urlValue);
+  }
+
+  const coerceInt = (input, fallback) => {
+    if (!input || input.value === undefined) {
+      return fallback;
+    }
+    const parsed = parseInt(input.value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const coerceFloat = (input, fallback) => {
+    if (!input || input.value === undefined) {
+      return fallback;
+    }
+    const parsed = parseFloat(input.value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const maxPages = coerceInt(maxPagesInput, 500);
+  const chunkSize = coerceInt(chunkSizeInput, 900);
+  const chunkOverlap = coerceInt(chunkOverlapInput, 150);
+  const similarityThreshold = coerceFloat(similarityInput, 0.4);
+  const topK = coerceInt(topKInput, 4);
+
+  formData.append('max_pages', maxPages);
+  formData.append('chunk_size', chunkSize);
+  formData.append('chunk_overlap', chunkOverlap);
+  formData.append('similarity_threshold', similarityThreshold);
+  formData.append('top_k', topK);
+
+  const uploadInput = document.getElementById('doc-upload');
+  if (uploadInput && uploadInput.files) {
+    Array.from(uploadInput.files).forEach(file => {
+      formData.append('documents', file);
+    });
+  }
+
+  beginStatusSession('Processing knowledge base');
+  showStatus('Starting knowledge base build…', 'info');
+
+  fetch('/api/index_all', {
+    method: 'POST',
+    body: formData
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
+    .then(({ ok, status, data }) => {
+      if (!ok || (data && data.error)) {
+        const message = data && data.error ? data.error : `Failed to start indexing (status ${status})`;
+        appendStatusLine(message, 'error');
+        completeStatusSession('Indexing failed to start.', 'error', { autoHide: false });
+        showStatus(message, 'error');
+        return;
+      }
+      appendStatusLine('Indexing job accepted. Follow progress below.', 'info');
+    })
+    .catch(err => {
+      console.error('Failed to start indexing', err);
+      appendStatusLine('Unable to start indexing job.', 'error');
+      completeStatusSession('Indexing failed to start.', 'error', { autoHide: false });
+      showStatus('Unable to start indexing.', 'error');
+    })
+    .finally(() => {
+      if (indexBtn) {
+        indexBtn.disabled = false;
+      }
+    });
+}
+
+function sendMessage() {
+  if (!ensureBotSelected('Select a bot before chatting.')) {
+    return;
+  }
+  const input = document.getElementById('chat-input');
+  if (!input) {
+    return;
+  }
+  const text = input.value.trim();
+  if (!text) {
+    return;
+  }
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    setTimeout(() => {
+      if (sendBtn.disabled) {
+        sendBtn.disabled = false;
+      }
+    }, 6000);
+  }
+  addUserMessage(text);
+  socket.emit('chat_message', attachBotId({ message: text }));
+  input.value = '';
+  input.focus();
+}
 
 function updateBotDependentControls() {
-  const hasBot = normalizeBotId(activeBotId) !== null;
+  const activeBot = getActiveBot();
+  const hasBot = Boolean(activeBot);
+  const status = activeBot ? (activeBot.status || '').toLowerCase() : '';
+  const botReady = status === 'ready' || status === 'idle';
+
+  updateBotStatusBanner(activeBot);
+
   const dependentInputs = [
     'url-input',
     'max-pages-input',
@@ -378,15 +699,15 @@ function updateBotDependentControls() {
   dependentInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
-      el.disabled = !hasBot;
+      el.disabled = !botReady;
     }
   });
   const indexBtn = document.getElementById('index-btn');
-  if (indexBtn) indexBtn.disabled = !hasBot;
+  if (indexBtn) indexBtn.disabled = !botReady;
   const saveBtn = document.getElementById('save-config-btn');
-  if (saveBtn) saveBtn.disabled = !hasBot;
+  if (saveBtn) saveBtn.disabled = !botReady;
   const sendBtn = document.getElementById('chat-send-btn');
-  if (sendBtn) sendBtn.disabled = !hasBot;
+  if (sendBtn) sendBtn.disabled = !botReady;
   const clearBtn = document.getElementById('bot-clear-history-btn');
   if (clearBtn) clearBtn.disabled = !hasBot;
   const destroyBtn = document.getElementById('bot-destroy-btn');
@@ -403,6 +724,10 @@ function setActiveBot(botId, options = {}) {
     localStorage.removeItem(ACTIVE_BOT_STORAGE_KEY);
     renderBotSelector();
     updateBotDependentControls();
+    if (botInitOverlayActive && statusOverlayActive) {
+      completeStatusSession('No active bot selected.', 'info');
+    }
+    botInitOverlayActive = false;
     if (shouldRefresh) {
       const resetChat = previous !== null;
       refreshBotScopedData({ resetChat });
@@ -421,6 +746,7 @@ function setActiveBot(botId, options = {}) {
 
   renderBotSelector();
   updateBotDependentControls();
+  handleBotLifecycle(getActiveBot(), { force: true });
 
   if (shouldRefresh) {
     const resetChat = previous !== normalized;
@@ -537,6 +863,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const createForm = document.getElementById('create-bot-form');
   if (createForm) {
     createForm.addEventListener('submit', submitCreateBotForm);
+  }
+  const showConfigBtnEl = document.getElementById('show-config-btn');
+  if (showConfigBtnEl) {
+    showConfigBtnEl.addEventListener('click', () => {
+      const card = document.getElementById('config-card');
+      if (card) {
+        card.dataset.forceVisible = 'true';
+        card.classList.remove('d-none');
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      showConfigBtnEl.classList.add('d-none');
+      const indexBtn = document.getElementById('index-btn');
+      if (indexBtn) {
+        indexBtn.focus();
+      }
+    });
   }
   updateBotDependentControls();
 });
@@ -709,6 +1051,11 @@ function loadBots() {
       const previousCount = bots.size || 0;
 
       bots = new Map(list.map(bot => [bot.id, bot]));
+      for (const key of Array.from(botStatusCache.keys())) {
+        if (!bots.has(key)) {
+          botStatusCache.delete(key);
+        }
+      }
 
       if (bots.size === 0) {
         activeBotId = null;
@@ -729,6 +1076,7 @@ function loadBots() {
       const currentActive = normalizeBotId(activeBotId);
       const resetChat = currentActive !== previousActive;
       refreshBotScopedData({ resetChat });
+      handleBotLifecycle(getActiveBot(), { force: true });
     })
     .catch(err => {
       console.error('Unable to load bots', err);
@@ -777,6 +1125,7 @@ function upsertBot(bot) {
   const statusChanged = previous && previous.status !== bot.status;
   renderBotSelector();
   updateBotDependentControls();
+  handleBotLifecycle(bot, { force: Boolean(statusChanged) });
   if (isActive && statusChanged && bot.status === 'ready') {
     refreshBotScopedData({ resetChat: false });
   }
@@ -1014,6 +1363,15 @@ function updateCrawlStatus(data) {
         summary = `Knowledge base ready — ${data.result.total_chunks} chunks indexed.`;
         if (typeof data.result.intents_detected !== 'undefined') {
           summary += ` Auto intents detected: ${data.result.intents_detected}.`;
+        }
+        if (typeof data.result.new_embeddings === 'number') {
+          summary += ` New vectors: ${data.result.new_embeddings}.`;
+        }
+        if (typeof data.result.reused_embeddings === 'number') {
+          summary += ` Reused vectors: ${data.result.reused_embeddings}.`;
+        }
+        if (data.result.profile_summary && data.result.profile_summary.company_name) {
+          summary += ` Profile: ${data.result.profile_summary.company_name}.`;
         }
       } else if (typeof data.result.pages !== 'undefined') {
         summary = `Crawl completed — ${data.result.pages} pages processed.`;
@@ -1693,6 +2051,10 @@ socket.on('chat_response', (data) => {
     return;
   }
   addBotMessage(data);
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (sendBtn) {
+    sendBtn.disabled = false;
+  }
 });
 
 socket.on('crawl_status', (data) => {
@@ -1717,6 +2079,12 @@ socket.on('index_status', (data) => {
     return;
   }
   updateCrawlStatus(data);
+  if (data.status === 'completed' || data.status === 'error') {
+    const configCard = document.getElementById('config-card');
+    if (configCard) {
+      delete configCard.dataset.forceVisible;
+    }
+  }
   if (data.status === 'completed') {
     loadStats();
     loadIntents();
@@ -1735,6 +2103,7 @@ socket.on('bot_update', (data) => {
     const id = normalizeBotId(data.id);
     if (id !== null) {
       bots.delete(id);
+      botStatusCache.delete(id);
     }
   } else if (data) {
     upsertBot(data);
