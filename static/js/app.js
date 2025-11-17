@@ -251,12 +251,14 @@ function renderStats(stats) {
   const placeholder = document.getElementById('stats-placeholder');
   const configCard = document.getElementById('config-card');
   const showConfigBtn = document.getElementById('show-config-btn');
+  const forceConfig = configCard && configCard.dataset && configCard.dataset.forceVisible === 'true';
+
   if (!stats || stats.indexed === false) {
     if (statsCard) statsCard.classList.add('d-none');
-    if (placeholder) placeholder.classList.remove('d-none');
+    if (placeholder) placeholder.classList.add('d-none');
     if (configCard) {
       configCard.classList.remove('d-none');
-      delete configCard.dataset.forceVisible;
+      configCard.dataset.forceVisible = 'true';
     }
     if (showConfigBtn) {
       showConfigBtn.classList.add('d-none');
@@ -267,15 +269,15 @@ function renderStats(stats) {
   if (placeholder) placeholder.classList.add('d-none');
   if (statsCard) statsCard.classList.remove('d-none');
   if (configCard) {
-    const forced = configCard.dataset && configCard.dataset.forceVisible === 'true';
-    configCard.classList.toggle('d-none', !forced);
-    if (!forced) {
+    if (forceConfig) {
+      configCard.classList.remove('d-none');
+    } else {
+      configCard.classList.add('d-none');
       delete configCard.dataset.forceVisible;
     }
   }
   if (showConfigBtn) {
-    const forced = configCard && configCard.dataset && configCard.dataset.forceVisible === 'true';
-    showConfigBtn.classList.toggle('d-none', Boolean(forced));
+    showConfigBtn.classList.toggle('d-none', Boolean(forceConfig));
   }
 
   const urlEl = document.getElementById('stat-url');
@@ -712,6 +714,8 @@ function updateBotDependentControls() {
   if (clearBtn) clearBtn.disabled = !hasBot;
   const destroyBtn = document.getElementById('bot-destroy-btn');
   if (destroyBtn) destroyBtn.disabled = !hasBot;
+  const restartBtn = document.getElementById('bot-restart-service-btn');
+  if (restartBtn) restartBtn.disabled = !(hasBot && status === 'ready');
 }
 
 function setActiveBot(botId, options = {}) {
@@ -844,6 +848,43 @@ function destroyActiveBot() {
     .catch(err => {
       console.error('Failed to destroy bot', err);
       showStatus('Unable to destroy bot', 'error');
+    });
+}
+
+function restartBotService() {
+  if (!ensureBotSelected('Select a bot before restarting its service.')) {
+    return;
+  }
+  const botId = normalizeBotId(activeBotId);
+  const bot = botId !== null ? bots.get(botId) : null;
+  const botName = bot && bot.name ? bot.name : 'this bot';
+  const btn = document.getElementById('bot-restart-service-btn');
+  if (btn) btn.disabled = true;
+  showStatus(`Restarting Rasa service for "${botName}"…`, 'info');
+
+  fetch(`/api/bots/${botId}/restart-service`, { method: 'POST' })
+    .then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
+    .then(({ ok, status, data }) => {
+      if (!ok || (data && data.error)) {
+        const message = data && data.error
+          ? data.error
+          : `Failed to restart service (status ${status}).`;
+        showStatus(message, 'error');
+        return;
+      }
+      if (data && data.bot) {
+        upsertBot(data.bot);
+        renderBotSelector();
+        updateBotDependentControls();
+      }
+      showStatus(`Rasa service restarted for "${botName}".`, 'success');
+    })
+    .catch(err => {
+      console.error('Failed to restart Rasa service', err);
+      showStatus('Unable to restart Rasa service.', 'error');
+    })
+    .finally(() => {
+      if (btn) btn.disabled = false;
     });
 }
 

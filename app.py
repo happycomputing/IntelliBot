@@ -9,6 +9,9 @@ import subprocess
 import threading
 import yaml
 import logging
+import socket
+import time
+import requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 from flask_socketio import SocketIO, emit
@@ -76,6 +79,11 @@ BOT_STATUS_ERROR = 'error'
 
 RASA_RESPONSE_TIMEOUT = int(os.environ.get('RASA_RESPONSE_TIMEOUT', '60'))
 RASA_BRIDGE_SCRIPT = os.path.join(BASE_DIR, 'scripts', 'rasa_respond.py')
+RASA_SERVICE_BASE_PORT = int(os.environ.get('RASA_SERVICE_BASE_PORT', '51000'))
+RASA_SERVICE_PORT_WINDOW = int(os.environ.get('RASA_SERVICE_PORT_WINDOW', '200'))
+
+_rasa_services = {}
+_rasa_lock = threading.Lock()
 
 
 def ensure_column_exists(table_name, column_name, ddl):
@@ -95,6 +103,7 @@ def ensure_schema_columns():
     """Add new columns introduced after initial deploy (SQLite-friendly)."""
     ensure_column_exists('conversations', 'bot_id', 'bot_id INTEGER')
     ensure_column_exists('intents', 'bot_id', 'bot_id INTEGER')
+    ensure_column_exists('bots', 'rasa_port', 'rasa_port INTEGER')
 
 
 def resolve_bot(bot_id):
@@ -156,6 +165,161 @@ def run_background_task(target, *args, **kwargs):
     return thread
 
 
+def find_available_port(preferred=None):
+    """Find a free local port for a Rasa service."""
+    start_port = preferred or RASA_SERVICE_BASE_PORT
+    max_port = RASA_SERVICE_BASE_PORT + max(RASA_SERVICE_PORT_WINDOW, 50)
+    for port in range(start_port, max_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+    return None
+
+
+def rasa_service_healthy(port):
+    """Check whether a Rasa server is responding on the given port."""
+    if not port:
+        return False
+    try:
+        resp = requests.get(f"http://127.0.0.1:{port}/status", timeout=2)
+        return resp.ok
+    except Exception:
+        return False
+
+
+def stop_rasa_service(bot_id, clear_entry=False):
+    """Stop a running Rasa HTTP service for a bot."""
+    with _rasa_lock:
+        proc_info = _rasa_services.pop(bot_id, None)
+
+    if not proc_info:
+        return
+
+    process = proc_info.get('process')
+    if process and process.poll() is None:
+        try:
+            process.terminate()
+            process.wait(timeout=10)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    if clear_entry:
+        with _rasa_lock:
+            _rasa_services.pop(bot_id, None)
+
+
+def start_rasa_service(bot, force_restart=False):
+    """Start or reuse a persistent Rasa HTTP server for a bot."""
+    if not bot or not rasa_available():
+        return False, "Rasa runtime not available", None
+
+    model_path = latest_model_path(bot.project_path)
+    if not model_path:
+        return False, "Bot has no trained model yet", None
+
+    # If a service already lives on the recorded port, reuse it.
+    if bot.rasa_port and rasa_service_healthy(bot.rasa_port) and not force_restart:
+        with _rasa_lock:
+            _rasa_services.setdefault(bot.id, {
+                'process': None,
+                'port': bot.rasa_port,
+                'model_path': model_path,
+            })
+        return True, None, bot.rasa_port
+
+    with _rasa_lock:
+        existing = _rasa_services.get(bot.id)
+        if existing and existing.get('process') and existing['process'].poll() is None:
+            if not force_restart and existing.get('model_path') == model_path:
+                return True, None, existing['port']
+            stop_rasa_service(bot.id)
+
+    preferred_port = bot.rasa_port or (RASA_SERVICE_BASE_PORT + max(bot.id - 1, 0))
+    port = find_available_port(preferred_port)
+    if not port:
+        return False, "No available port for Rasa service", None
+
+    env = os.environ.copy()
+    env.setdefault('RASA_TELEMETRY_ENABLED', 'false')
+    env.setdefault('RASA_LOG_LEVEL', 'ERROR')
+    env.setdefault('LOG_LEVEL', 'ERROR')
+
+    command = [
+        RASA_PYTHON,
+        '-m',
+        'rasa',
+        'run',
+        '--enable-api',
+        '--model',
+        model_path,
+        '--port',
+        str(port),
+        '--cors',
+        '*',
+    ]
+
+    project_path = ensure_absolute_project_path(bot.project_path)
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=project_path,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except Exception as exc:
+        return False, str(exc), None
+
+    # Wait briefly for the server to come up; capture early failures
+    started = False
+    for _ in range(480):  # wait up to ~120s
+        if process.poll() is not None:
+            stderr = (process.stderr.read() or '').strip() if process.stderr else ''
+            stdout = (process.stdout.read() or '').strip() if process.stdout else ''
+            return False, stderr or stdout or 'Rasa service exited unexpectedly', None
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            try:
+                sock.connect(('127.0.0.1', port))
+                started = True
+                break
+            except OSError:
+                time.sleep(0.25)
+    if not started:
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+        stop_rasa_service(bot.id, clear_entry=True)
+        return False, f"Rasa service did not start on port {port}", None
+
+    bot.rasa_port = port
+    ok, db_err = safe_commit()
+    if not ok:
+        app.logger.warning("Unable to persist rasa_port for bot %s: %s", bot.id, db_err)
+
+    with _rasa_lock:
+        _rasa_services[bot.id] = {
+            'process': process,
+            'port': port,
+            'model_path': model_path,
+        }
+
+    return True, None, port
+
+
 def safe_commit():
     """Commit the current database session, rolling back on failure."""
     try:
@@ -186,81 +350,52 @@ def generate_bot_slug(name):
 
 
 def run_rasa_turn(bot, message, sender_id=None):
-    """Invoke the Rasa runtime for a single user message."""
-    if not rasa_available():
-        return {"status": "error", "message": "Rasa runtime not available"}
+    """Send a message to the persistent Rasa HTTP service for a bot."""
+    ok, err, port = start_rasa_service(bot)
+    if not ok or not port:
+        return {"status": "error", "message": err or "Unable to start Rasa service"}
 
-    model_path = latest_model_path(bot.project_path)
-    if not model_path:
-        return {"status": "error", "message": "Bot has no trained model yet"}
+    url = f"http://127.0.0.1:{port}/webhooks/rest/webhook"
+    payload = {"sender": sender_id or "default", "message": message}
 
-    if not os.path.exists(RASA_BRIDGE_SCRIPT):
-        return {"status": "error", "message": "Bridge script missing"}
+    try:
+        resp = requests.post(url, json=payload, timeout=RASA_RESPONSE_TIMEOUT)
+    except Exception as exc:
+        app.logger.warning("Rasa HTTP request failed for bot %s: %s", bot.id, exc)
+        return {"status": "error", "message": str(exc)}
 
-    env = os.environ.copy()
-    env.setdefault('RASA_TELEMETRY_ENABLED', 'false')
-    env.setdefault('RASA_LOG_LEVEL', 'ERROR')
-    env.setdefault('LOG_LEVEL', 'ERROR')
+    if resp.status_code >= 400:
+        return {"status": "error", "message": f"Rasa service error ({resp.status_code})"}
 
-    command = [
-        RASA_PYTHON,
-        RASA_BRIDGE_SCRIPT,
-        '--model',
-        model_path,
-        '--message',
-        message,
-    ]
-    if sender_id:
-        command.extend(['--sender', sender_id])
+    try:
+        responses = resp.json()
+    except Exception as exc:
+        return {"status": "error", "message": f"Invalid response from Rasa: {exc}"}
 
-    project_path = ensure_absolute_project_path(bot.project_path)
+    intent_name = None
+    confidence = None
+    try:
+        parse_resp = requests.post(
+            f"http://127.0.0.1:{port}/model/parse",
+            json={"text": message},
+            timeout=10,
+        )
+        if parse_resp.ok:
+            parse_payload = parse_resp.json()
+            intent_data = parse_payload.get('intent') if isinstance(parse_payload, dict) else None
+            if isinstance(intent_data, dict):
+                intent_name = intent_data.get('name')
+                confidence = intent_data.get('confidence')
+    except Exception:
+        pass
 
-    result = subprocess.run(
-        command,
-        cwd=project_path,
-        capture_output=True,
-        text=True,
-        timeout=RASA_RESPONSE_TIMEOUT,
-        check=False,
-        env=env,
-    )
-
-    if result.returncode != 0:
-        stderr = (result.stderr or '').strip()
-        stdout = (result.stdout or '').strip()
-        error_message = stderr or stdout or 'Rasa response failed'
-        return {"status": "error", "message": error_message}
-
-    payload_raw = (result.stdout or '').strip()
-    if not payload_raw:
-        return {"status": "error", "message": "Empty response from Rasa"}
-
-    def try_decode(raw_text):
-        raw_text = (raw_text or '').strip()
-        if not raw_text:
-            return None
-        try:
-            return json.loads(raw_text)
-        except json.JSONDecodeError:
-            return None
-
-    payload = try_decode(payload_raw)
-    if payload is None and '\n' in payload_raw:
-        for line in reversed(payload_raw.splitlines()):
-            payload = try_decode(line)
-            if payload is not None:
-                break
-
-    if payload is None:
-        if result.stderr:
-            app.logger.debug("Rasa stderr: %s", result.stderr.strip())
-        app.logger.debug("Unable to decode Rasa response: %s", payload_raw)
-        return {
-            "status": "error",
-            "message": "Malformed response from Rasa runtime",
-        }
-
-    return payload
+    return {
+        "status": "success",
+        "responses": responses if isinstance(responses, list) else [],
+        "intent": intent_name,
+        "confidence": confidence,
+        "port": port,
+    }
 
 
 def initialize_bot_project(bot_id, project_path):
@@ -321,6 +456,9 @@ def train_bot_project(bot_id, project_path):
             bot.status = BOT_STATUS_READY
             bot.last_error = ''
             bot.last_trained_at = datetime.utcnow()
+            start_ok, start_err, port = start_rasa_service(bot, force_restart=True)
+            if not start_ok:
+                bot.last_error = f"Training succeeded but Rasa service failed: {start_err}"
         else:
             bot.status = BOT_STATUS_ERROR
             bot.last_error = error or 'Training failed'
@@ -337,6 +475,15 @@ def train_bot_project(bot_id, project_path):
             safe_commit()
         emit_bot_update(bot)
 
+def start_ready_bot_services():
+    """Preload Rasa services for all bots marked READY."""
+    if not DB_AVAILABLE or not rasa_available():
+        return
+    with app.app_context():
+        bots = Bot.query.filter(Bot.status == BOT_STATUS_READY).all()
+        for bot in bots:
+            start_rasa_service(bot, force_restart=False)
+
 def init_database():
     """Initialize database in background to avoid blocking startup"""
     global DB_AVAILABLE
@@ -349,6 +496,8 @@ def init_database():
         except Exception as e:
             print(f"❌ Database initialization error: {e}")
             print("⚠️  Conversation logging is DISABLED. Chat will work but conversations won't be saved.")
+        else:
+            run_background_task(start_ready_bot_services)
 
 # Start database initialization in background
 threading.Thread(target=init_database, daemon=True).start()
@@ -1179,6 +1328,38 @@ def train_bot(bot_id):
     return jsonify({"status": "started", "bot": bot.to_dict()}), 202
 
 
+@app.route('/api/bots/<int:bot_id>/restart-service', methods=['POST'])
+def restart_bot_service(bot_id):
+    """Restart the persistent Rasa service for a bot."""
+    if not DB_AVAILABLE:
+        return jsonify({"error": "Database unavailable"}), 503
+    if not rasa_available():
+        return jsonify({"error": "Rasa environment not available"}), 503
+
+    bot = Bot.query.get(bot_id)
+    if not bot:
+        return jsonify({"error": "Bot not found"}), 404
+    if bot.status != BOT_STATUS_READY:
+        return jsonify({"error": "Bot is not ready"}), 409
+
+    stop_rasa_service(bot.id, clear_entry=True)
+    ok, err, port = start_rasa_service(bot, force_restart=True)
+    if not ok:
+        bot.last_error = err or 'Failed to restart Rasa service'
+        bot.updated_at = datetime.utcnow()
+        safe_commit()
+        emit_bot_update(bot)
+        return jsonify({"error": bot.last_error}), 500
+
+    bot.last_error = ''
+    bot.updated_at = datetime.utcnow()
+    ok, db_err = safe_commit()
+    if not ok:
+        app.logger.warning("Failed to persist restart status for bot %s: %s", bot.id, db_err)
+    emit_bot_update(bot)
+    return jsonify({"status": "restarted", "port": port, "bot": bot.to_dict()}), 200
+
+
 @app.route('/api/bots/<int:bot_id>', methods=['DELETE'])
 def delete_bot(bot_id):
     """Completely remove a bot, its knowledge base, and related data."""
@@ -1188,6 +1369,8 @@ def delete_bot(bot_id):
     bot = Bot.query.get(bot_id)
     if not bot:
         return jsonify({"error": "Bot not found"}), 404
+
+    stop_rasa_service(bot.id, clear_entry=True)
 
     storage = get_storage_paths(bot)
     project_path = ensure_absolute_project_path(bot.project_path)

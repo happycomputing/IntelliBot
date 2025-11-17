@@ -21,53 +21,6 @@
     <div id="inline-status" class="alert d-none" role="alert"></div>
     <div class="row g-3 h-100">
       <div class="col-md-3 d-flex flex-column h-100" id="sidebar-column">
-        <div id="stats-placeholder" class="alert alert-info small">
-          Index the knowledge base to view statistics and manage data.
-        </div>
-        <div class="card mb-3 d-none" id="stats-card">
-          <div class="card-header bg-warning text-dark">
-            <i class="bi bi-bar-chart"></i> Statistics
-          </div>
-          <div class="card-body">
-            <div class="mb-2">
-              <strong>Configured URL:</strong>
-              <div id="stat-url" class="text-muted small">-</div>
-            </div>
-            <div class="mb-2">
-              <strong>Raw Documents:</strong>
-              <span id="stat-raw-docs" class="badge bg-secondary">0</span>
-            </div>
-            <div class="mb-2">
-              <strong>Total Chunks:</strong>
-              <span id="stat-chunks" class="badge bg-secondary">0</span>
-            </div>
-            <div class="mb-2">
-              <strong>Embedding Activity:</strong>
-              <div class="small text-muted">
-                <div>New vectors <span id="stat-new-embeddings" class="badge bg-success">0</span></div>
-                <div>Reused vectors <span id="stat-reused-embeddings" class="badge bg-secondary">0</span></div>
-              </div>
-            </div>
-            <div class="mb-2">
-              <strong>Company Profile:</strong>
-              <div id="stat-profile" class="small text-muted">
-                <em>Profile not generated</em>
-              </div>
-            </div>
-            <div class="mb-2">
-              <strong>Document Sources:</strong>
-              <div id="stat-sources" class="small text-muted mt-1 stats-sources">
-                <em>No documents loaded</em>
-              </div>
-            </div>
-            <button class="btn btn-primary w-100 mt-3 d-none" id="show-config-btn">
-              <i class="bi bi-gear"></i> Rebuild Knowledge Base
-            </button>
-            <button class="btn btn-outline-danger btn-sm w-100 mt-3" onclick="clearBot()">
-              <i class="bi bi-trash"></i> Clear Bot Data
-            </button>
-          </div>
-        </div>
         <div class="card mb-3" id="config-card">
           <div class="card-header bg-primary text-white">
             <i class="bi bi-gear"></i> Configuration
@@ -144,6 +97,9 @@
                 <button class="btn btn-sm btn-outline-light" type="button" id="bot-clear-history-btn" onclick="clearConversationHistory()" title="Clear chat history" aria-label="Clear chat history">
                   <i class="bi bi-trash"></i>
                 </button>
+                <button class="btn btn-sm btn-outline-light" type="button" id="bot-restart-service-btn" onclick="restartBotService()" title="Restart Rasa service" aria-label="Restart Rasa service">
+                  <i class="bi bi-arrow-repeat"></i>
+                </button>
                 <button class="btn btn-sm btn-outline-light" type="button" id="bot-destroy-btn" onclick="destroyActiveBot()" title="Destroy bot" aria-label="Destroy bot">
                   <i class="bi bi-x-circle"></i>
                 </button>
@@ -217,10 +173,16 @@
           <h5 class="modal-title"><i class="bi bi-robot"></i> Bot Intelligence Panel</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-        <div class="modal-body">
+          <div class="modal-body">
           <ul class="nav nav-tabs mb-3" id="intelligenceTabs" role="tablist">
             <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="conversations-tab" data-bs-toggle="tab"
+              <button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button"
+                role="tab">
+                <i class="bi bi-bar-chart"></i> Stats
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="conversations-tab" data-bs-toggle="tab"
                 data-bs-target="#conversations" type="button" role="tab">
                 <i class="bi bi-chat-dots"></i> Conversations
               </button>
@@ -240,8 +202,95 @@
           </ul>
 
           <div class="tab-content" id="intelligenceTabContent">
+            <!-- Stats Tab -->
+            <div class="tab-pane fade show active" id="stats" role="tabpanel">
+              <div id="stats-placeholder" class="alert alert-info small">
+                Index the knowledge base to view statistics and manage data.
+              </div>
+              <div class="card mb-3 d-none" id="stats-card">
+                <div class="card-header bg-warning text-dark">
+                  <i class="bi bi-bar-chart"></i> Statistics
+                </div>
+                <div class="card-body">
+                  <div class="mb-2">
+                    <strong>Configured URL:</strong>
+                    <div id="stat-url" class="text-muted small">-</div>
+                  </div>
+                  <div class="mb-2">
+                    <strong>Raw Documents:</strong>
+                    <span id="stat-raw-docs" class="badge bg-secondary">0</span>
+                  </div>
+                  <div class="mb-2">
+                    <strong>Total Chunks:</strong>
+                    <span id="stat-chunks" class="badge bg-secondary">0</span>
+                  </div>
+                  <div class="mb-2">
+                    <strong>Embedding Activity:</strong>
+                    <div class="small text-muted">
+                      <div>New vectors <span id="stat-new-embeddings" class="badge bg-success">0</span></div>
+                      <div>Reused vectors <span id="stat-reused-embeddings" class="badge bg-secondary">0</span></div>
+                    </div>
+                  </div>
+                  <div class="mb-2">
+                    <strong>Company Profile:</strong>
+                    <div id="stat-profile" class="small text-muted">
+                      <em>Profile not generated</em>
+                    </div>
+                  </div>
+                  <div class="mb-2">
+                    <strong>Document Sources:</strong>
+                    <div id="stat-sources" class="small text-muted mt-1 stats-sources">
+                      <em>No documents loaded</em>
+                    </div>
+                  </div>
+                  <button class="btn btn-primary w-100 mt-3 d-none" id="show-config-btn">
+                    <i class="bi bi-gear"></i> Rebuild Knowledge Base
+                  </button>
+                  <button class="btn btn-outline-danger btn-sm w-100 mt-3" onclick="clearBot()">
+                    <i class="bi bi-trash"></i> Clear Bot Data
+                  </button>
+                </div>
+              </div>
+              <div class="card" id="config-card">
+                <div class="card-header bg-primary text-white">
+                  <i class="bi bi-gear"></i> Configuration
+                </div>
+                <div class="card-body">
+                  <div id="bot-status-banner" class="alert alert-info small d-none mb-3" role="alert"></div>
+                  <div class="mb-3">
+                    <label class="form-label">Website URL</label>
+                    <input type="url" class="form-control" id="url-input">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Max Pages</label>
+                    <input type="number" class="form-control" id="max-pages-input" value="500">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Chunk Size</label>
+                    <input type="number" class="form-control" id="chunk-size-input" value="900">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Chunk Overlap</label>
+                    <input type="number" class="form-control" id="chunk-overlap-input" value="150">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label small">Upload Documents (Optional)</label>
+                    <input type="file" class="form-control form-control-sm" id="doc-upload" multiple accept=".md,.pdf">
+                    <small class="text-muted">Markdown or PDF files</small>
+                  </div>
+                  <button class="btn btn-success w-100 mb-2" id="index-btn" onclick="startIndexing()">
+                    <i class="bi bi-lightning"></i> Index Knowledge Base
+                  </button>
+                  <div class="alert alert-warning py-2 px-2 small mb-2">
+                    This will crawl the configured URL, process uploaded documents, rebuild the index, and auto-detect
+                    intents.
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Conversations Tab -->
-            <div class="tab-pane fade show active" id="conversations" role="tabpanel">
+            <div class="tab-pane fade" id="conversations" role="tabpanel">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h6>Recent Conversations</h6>
                 <div>
