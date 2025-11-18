@@ -8,6 +8,8 @@ Use two spaces for indentation.
 - **Python env**: `/workspace/IntelliBot/.venv`
 - **Service env vars**: `/etc/intellibot.env` (update with real secrets, then restart service)
 - **Core secrets**: `OPENAI_API_KEY`, `SESSION_SECRET` (SQLite handled locally via `intellibot.db`)
+- **Rasa env**: `/workspace/IntelliBot/.venv-rasa` (Rasa 3.6.x)
+- **Container access**: `lxc exec IntelliBot -- ...` permitted for ops/logs; stay under `/workspace/IntelliBot`
 
 ## Container Access
 
@@ -129,13 +131,11 @@ lxc exec IntelliBot -- bash -lc "curl -I http://127.0.0.1:80/health"
 - Runtime flow: Gunicorn + Eventlet hosts Flask/Socket.IO; chat turns call `run_rasa_turn`, which shells into `.venv-rasa` to query each bot's trained model.
 - Frontend UX: users pick/create bots via the header selector; stats/config panels update when a bot is ready; chat history (with feedback controls) reloads on connect.
 - Ops checklist after changes: re-run `.venv/bin/pip install -r requirements.txt` if dependencies change, then `systemctl restart intellibot.service`; hit `/health` for a quick verify.
-
-## Container Permissions
-
-- Persistent user inside container: `pieter` (UID/GID 1001). Systemd runs `intellibot.service` as this user so that everything under `/workspace/IntelliBot` stays writable from the host.
-- Use the helper: `./scripts/container-dev.sh` …
-  - With a command: `./scripts/container-dev.sh "pip install -r requirements.txt"`
-  - Without args, you get an interactive shell as `pieter` inside the container.
-- When root privileges are required (e.g. `apt`, `chown`, service tweaks), run: `lxc exec IntelliBot -- sudo ...` and afterwards ensure ownership stays on UID/GID 1001 (rerun `chown -R 1001:1001 /workspace/IntelliBot` if needed).
-- Keep `lxc config device set IntelliBot code shift true` enabled so the host/container UID mapping stays aligned; after applying it, restart the container.
-
+- Training pipeline notes (Nov 2025):
+  - New bots clone a starter Rasa project/model; they are marked READY and a Rasa service is launched immediately where possible.
+  - Knowledge flow: crawl/upload → index → auto-detect intents → build Rasa domain/nlu/stories/rules → optional train. Use `/api/index_all` for the full chain; `/api/bots/<id>/train` to retrain.
+  - Training build: `app.py` renders training files from enabled intents plus base intents (greet/goodbye/out_of_scope/fallback) and recent conversations (when requested). NLU is emitted with block scalars to avoid Rasa parse errors; rules are regenerated to align with available utterances to prevent RulePolicy contradictions.
+  - Conversations in training: `/api/bots/<id>/train` accepts `include_conversations` (default true). Single-example conversations are skipped to avoid intent conflicts; base greetings are filtered out.
+  - Fallback: If the Rasa service errors/returns empty or bot not READY, chat falls back to retrieval with company/contact info injected.
+  - Common failure seen: RulePolicy contradiction if rules/stories reference intents not in the domain. Regenerating rules via training fixes this.
+- Separation of concerns: This app’s mission is to manage Rasa bots (projects, training data, services). Keep all dialog logic/guardrails inside Rasa (intents, responses, policies); do not bolt on alternative chat engines or non-Rasa “general AI” paths.

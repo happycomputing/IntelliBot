@@ -2055,6 +2055,52 @@ function previewHybrid(intentId) {
     });
 }
 
+function triggerTraining(includeConversations = true) {
+  if (!ensureBotSelected('Select a bot before training.')) {
+    return;
+  }
+  const bot = getActiveBot();
+  if (!bot) {
+    return;
+  }
+  showStatus(`Training "${bot.name}"...`, 'info');
+  fetch(`/api/bots/${bot.id}/train`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ include_conversations: includeConversations })
+  })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || (data && data.error)) {
+        showStatus(data.error || 'Unable to start training.', 'error');
+        const stats = document.getElementById('training-stats');
+        if (stats) {
+          stats.style.display = 'block';
+          stats.className = 'alert alert-danger';
+          stats.textContent = data.error || 'Unable to start training.';
+        }
+        return;
+      }
+      showStatus('Training started.', 'success');
+      const stats = document.getElementById('training-stats');
+      if (stats) {
+        stats.style.display = 'block';
+        stats.className = 'alert alert-info';
+        stats.textContent = 'Training started…';
+      }
+    })
+    .catch(err => {
+      console.error('Training error', err);
+      showStatus('Unable to start training.', 'error');
+      const stats = document.getElementById('training-stats');
+      if (stats) {
+        stats.style.display = 'block';
+        stats.className = 'alert alert-danger';
+        stats.textContent = 'Unable to start training.';
+      }
+    });
+}
+
 function exportTrainingData() {
   if (!ensureBotSelected('Select a bot before exporting training data.')) {
     return;
@@ -2148,6 +2194,24 @@ socket.on('bot_update', (data) => {
     }
   } else if (data) {
     upsertBot(data);
+    const activeId = normalizeBotId(activeBotId);
+    const incomingId = normalizeBotId(data.id);
+    if (activeId !== null && incomingId === activeId) {
+      const stats = document.getElementById('training-stats');
+      if (stats && data.status) {
+        stats.style.display = 'block';
+        if (data.status === 'training') {
+          stats.className = 'alert alert-info';
+          stats.textContent = 'Training in progress…';
+        } else if (data.status === 'ready') {
+          stats.className = 'alert alert-success';
+          stats.textContent = 'Training complete. Bot is ready.';
+        } else if (data.status === 'error') {
+          stats.className = 'alert alert-danger';
+          stats.textContent = data.last_error || 'Training failed.';
+        }
+      }
+    }
   }
   loadBots();
 });

@@ -33,6 +33,11 @@ from bot_manager import (
     RASA_PYTHON,
     init_rasa_project,
     train_rasa_project,
+    clone_starter_project,
+)
+from openai_service import (
+    get_company_name_from_url,
+    generate_fallback_response,
 )
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -403,7 +408,13 @@ def initialize_bot_project(bot_id, project_path):
     with app.app_context():
         try:
             abs_path = ensure_absolute_project_path(project_path)
-            init_rasa_project(abs_path)
+            starter_model = None
+            try:
+                starter_model = clone_starter_project(abs_path)
+            except Exception as starter_exc:
+                app.logger.warning("Starter bootstrap failed, falling back to fresh init: %s", starter_exc)
+            if not starter_model:
+                init_rasa_project(abs_path)
         except Exception as exc:
             db.session.rollback()
             bot = Bot.query.get(bot_id)
@@ -427,9 +438,14 @@ def initialize_bot_project(bot_id, project_path):
         bot = Bot.query.get(bot_id)
         if not bot:
             return
-        bot.status = BOT_STATUS_IDLE
+        bot.status = BOT_STATUS_READY
         bot.last_error = ''
+        bot.last_trained_at = datetime.utcnow()
         bot.updated_at = datetime.utcnow()
+        start_ok, start_err, port = start_rasa_service(bot, force_restart=True)
+        if not start_ok:
+            bot.status = BOT_STATUS_IDLE
+            bot.last_error = f"Starter model not running: {start_err}"
         ok, db_err = safe_commit()
         if not ok:
             bot = Bot.query.get(bot_id)
@@ -441,11 +457,181 @@ def initialize_bot_project(bot_id, project_path):
             safe_commit()
         emit_bot_update(bot)
 
+def build_rasa_training_files(bot, include_conversations=False):
+    """Render Rasa training files from stored intents and recent conversations."""
+    project_path = ensure_absolute_project_path(bot.project_path)
+    data_dir = os.path.join(project_path, 'data')
+    os.makedirs(data_dir, exist_ok=True)
 
-def train_bot_project(bot_id, project_path):
+    intents = Intent.query.filter(
+        (Intent.bot_id == bot.id) | (Intent.bot_id.is_(None))
+    ).filter(Intent.enabled.is_(True)).all()
+
+    domain_intents = []
+    domain_responses = {}
+    nlu_entries = []
+    stories = []
+
+    profile = load_profile_data(bot)
+    company_name = profile.get('company_name') or "our company"
+    contact = profile.get('contact') or {}
+    contact_lines = []
+    for key in ('phone', 'email', 'website', 'address'):
+        value = contact.get(key)
+        if value:
+            contact_lines.append(f"{key.title()}: {value}")
+    contact_block = "\n".join(contact_lines)
+    contact_suffix = f"\nYou can reach us:\n{contact_block}" if contact_block else ""
+
+    # Base safety/introduction intents to satisfy starter rules.
+    base_intents = {
+        "greet": {
+            "examples": ["hello", "hi", "hey", "good morning", "good evening"],
+            "responses": [f"Hello! I can help with questions about {company_name}. What would you like to know?"],
+        },
+        "goodbye": {
+            "examples": ["bye", "goodbye", "see you", "talk to you later"],
+            "responses": ["Goodbye!"],
+        },
+        "out_of_scope": {
+            "examples": [
+                "can you write code for me",
+                "order me a pizza",
+                "book a flight",
+                "solve this math problem",
+                "how do i get rid of rats",
+                "pesting",
+                "do you eat carrots"
+            ],
+            "responses": [f"I’m only able to help with questions about {company_name}.{contact_suffix}"],
+        },
+        "nlu_fallback": {
+            "examples": ["asldkjasd", "???", "I don't know"],
+            "responses": [f"I’m only able to help with questions about {company_name}. Could you rephrase about that?"],
+        },
+    }
+    base_example_texts = {ex.strip().lower() for payload in base_intents.values() for ex in payload.get("examples", [])}
+
+    def add_example_intent(name, description, examples, responses):
+        if not name:
+            return
+        domain_intents.append(name)
+        utter_name = f"utter_{name}"
+        trimmed_responses = [r for r in (responses or []) if isinstance(r, str) and r.strip()]
+        if not trimmed_responses:
+            trimmed_responses = [description or f"Details about {name}."]
+        domain_responses[utter_name] = [{"text": r} for r in trimmed_responses[:3]]
+        example_lines = [ex for ex in (examples or []) if isinstance(ex, str) and ex.strip()]
+        if not example_lines:
+            example_lines = [description or f"Ask about {name}"]
+        nlu_entries.append({
+            "intent": name,
+            "examples": example_lines[:15],
+        })
+        stories.append({
+            "story": f"{name}_story",
+            "steps": [
+                {"intent": name},
+                {"action": utter_name},
+            ]
+        })
+
+    for intent in intents:
+        add_example_intent(intent.name, intent.description, intent.examples, intent.responses)
+
+    # inject base intents/responses
+    for base_name, payload in base_intents.items():
+        add_example_intent(base_name, "", payload.get("examples"), payload.get("responses"))
+
+    if include_conversations:
+        conversations = Conversation.query.filter(Conversation.bot_id == bot.id) \
+            .order_by(Conversation.timestamp.desc()).limit(50).all()
+        oos_queries = []
+        for conv in conversations:
+            if not conv.question:
+                continue
+            question_text = conv.question.strip()
+            if not question_text:
+                continue
+            if question_text.lower() in base_example_texts:
+                continue
+            feedback = (conv.feedback or '').lower()
+            if 'not helpful' in feedback or 'off topic' in feedback or 'irrelevant' in feedback:
+                oos_queries.append(question_text)
+                continue
+            label = f"conversation_{conv.id}"
+            examples = [question_text]
+            if len(examples) < 2:
+                continue
+            add_example_intent(
+                label,
+                "Learned from conversation history",
+                examples,
+                [conv.answer] if conv.answer else ["I'll help with that."]
+            )
+        if oos_queries:
+            existing_oos = base_intents.get("out_of_scope", {}).get("examples", [])
+            merged = list({q.strip().lower(): q.strip() for q in existing_oos + oos_queries if q.strip()}.values())
+            base_intents["out_of_scope"]["examples"] = merged
+
+    domain_content = {
+        "version": "3.1",
+        "intents": domain_intents,
+        "responses": domain_responses,
+    }
+    domain_path = os.path.join(project_path, 'domain.yml')
+    with open(domain_path, 'w', encoding='utf-8') as domain_file:
+        yaml.safe_dump(domain_content, domain_file, sort_keys=False, allow_unicode=True)
+
+    # Build NLU YAML manually to avoid PyYAML quoting the block scalar.
+    nlu_lines = ["version: '3.1'", "nlu:"]
+    for entry in nlu_entries:
+        nlu_lines.append(f"- intent: {entry['intent']}")
+        nlu_lines.append("  examples: |")
+        for ex in entry["examples"]:
+            nlu_lines.append(f"    - {ex}")
+    nlu_payload = "\n".join(nlu_lines) + "\n"
+    nlu_path = os.path.join(data_dir, 'nlu.yml')
+    with open(nlu_path, 'w', encoding='utf-8') as nlu_file:
+        nlu_file.write(nlu_payload)
+
+    stories_payload = {
+        "version": "3.1",
+        "stories": stories,
+    }
+    stories_path = os.path.join(data_dir, 'stories.yml')
+    with open(stories_path, 'w', encoding='utf-8') as stories_file:
+        yaml.safe_dump(stories_payload, stories_file, sort_keys=False, allow_unicode=True, width=200)
+
+    # Rules aligned to available intents/actions to avoid contradictions.
+    rules = []
+    for intent_name in domain_intents:
+        rules.append({
+            "rule": f"respond to {intent_name}",
+            "steps": [
+                {"intent": intent_name},
+                {"action": f"utter_{intent_name}"}
+            ]
+        })
+    rules_payload = {
+        "version": "3.1",
+        "rules": rules,
+    }
+    rules_path = os.path.join(data_dir, 'rules.yml')
+    with open(rules_path, 'w', encoding='utf-8') as rules_file:
+        yaml.safe_dump(rules_payload, rules_file, sort_keys=False, allow_unicode=True, width=200)
+
+
+def train_bot_project(bot_id, project_path, include_conversations=True):
     """Background task to run rasa train for a bot."""
     with app.app_context():
         abs_path = ensure_absolute_project_path(project_path)
+        bot = Bot.query.get(bot_id)
+        if bot:
+            try:
+                build_rasa_training_files(bot, include_conversations=include_conversations)
+            except Exception as render_exc:
+                app.logger.warning("Unable to render training files for bot %s: %s", bot_id, render_exc)
         app.logger.info("Running rasa train for bot %s using model path %s", bot_id, abs_path)
         success, error = train_rasa_project(abs_path)
         bot = Bot.query.get(bot_id)
@@ -541,6 +727,18 @@ def get_retrieval(bot=None):
         )
         _retrieval_cache[key] = engine
     return engine
+
+def load_profile_data(bot=None):
+    """Load the generated company profile for a bot if present."""
+    storage = get_storage_paths(bot)
+    profile_path = storage.get('profile_path')
+    if profile_path and os.path.exists(profile_path):
+        try:
+            with open(profile_path, 'r', encoding='utf-8') as profile_file:
+                return yaml.safe_load(profile_file) or {}
+        except Exception:
+            return {}
+    return {}
 
 def load_config(bot=None):
     storage = get_storage_paths(bot)
@@ -1307,6 +1505,9 @@ def train_bot(bot_id):
     if not rasa_available():
         return jsonify({"error": "Rasa environment not available"}), 503
 
+    payload = request.get_json(silent=True) or {}
+    include_conversations = bool(payload.get('include_conversations', True))
+
     bot = Bot.query.get(bot_id)
     if not bot:
         return jsonify({"error": "Bot not found"}), 404
@@ -1323,7 +1524,7 @@ def train_bot(bot_id):
         return jsonify({"error": f"Failed to update bot: {err}"}), 500
 
     emit_bot_update(bot)
-    run_background_task(train_bot_project, bot.id, bot.project_path)
+    run_background_task(train_bot_project, bot.id, bot.project_path, include_conversations)
 
     return jsonify({"status": "started", "bot": bot.to_dict()}), 202
 
@@ -1400,6 +1601,33 @@ def delete_bot(bot_id):
     socketio.emit('bot_update', {'id': bot_id, 'deleted': True})
     return jsonify({"status": "deleted", "bot_id": bot_id}), 200
 
+def retrieval_fallback_response(bot, query):
+    """Return a retrieval-based answer, enriched with company/contact info."""
+    retrieval_engine = get_retrieval(bot)
+    retrieval_result = retrieval_engine.get_answer(query)
+    profile = load_profile_data(bot)
+    config = load_config(bot)
+    company_name = profile.get('company_name') or get_company_name_from_url(config.get('url'))
+    contact = profile.get('contact') or {}
+    contact_lines = []
+    for key in ('phone', 'email', 'website', 'address'):
+        value = contact.get(key)
+        if value:
+            contact_lines.append(f"{key.title()}: {value}")
+    contact_block = "\n".join(contact_lines)
+
+    answer_text = retrieval_result.get('answer') or ''
+    if not answer_text or "couldn't find anything relevant" in answer_text.lower():
+        fallback = generate_fallback_response(company_name, f"\n\nYou can reach us:\n{contact_block}" if contact_block else "")
+        answer_text = fallback
+    elif contact_block and contact_block not in answer_text:
+        answer_text = f"{answer_text}\n\nContact:\n{contact_block}"
+
+    retrieval_result['answer'] = answer_text
+    retrieval_result['intent'] = retrieval_result.get('intent') or 'retrieval'
+    retrieval_result['rasa'] = False
+    return retrieval_result
+
 @socketio.on('chat_message')
 def handle_chat_message(data):
     query = (data.get('message') or '').strip()
@@ -1427,7 +1655,6 @@ def handle_chat_message(data):
         sender_id = data.get('sender_id') or getattr(request, 'sid', None) or f"socket-{bot_id}"
         rasa_payload = run_rasa_turn(active_bot, query, sender_id=str(sender_id))
         if rasa_payload.get('status') == 'success':
-            rasa_used = True
             responses = rasa_payload.get('responses', []) or []
             text_parts = []
             for response in responses:
@@ -1436,36 +1663,26 @@ def handle_chat_message(data):
                     if text:
                         text_parts.append(str(text))
             answer_text = '\n'.join(part.strip() for part in text_parts if part).strip()
-            if not answer_text:
-                answer_text = 'Rasa did not return a response.'
-            result = {
-                'answer': answer_text,
-                'sources': [],
-                'intent': rasa_payload.get('intent') or 'rasa',
-                'confidence': rasa_payload.get('confidence'),
-                'bot_id': active_bot.id,
-                'responses': responses,
-                'rasa': True,
-            }
+            if answer_text:
+                rasa_used = True
+                result = {
+                    'answer': answer_text,
+                    'sources': [],
+                    'intent': rasa_payload.get('intent') or 'rasa',
+                    'confidence': rasa_payload.get('confidence'),
+                    'bot_id': active_bot.id,
+                    'responses': responses,
+                    'rasa': True,
+                }
+            else:
+                result = retrieval_fallback_response(active_bot, query)
         else:
             app.logger.warning(
                 "Rasa error for bot %s: %s", active_bot.id, rasa_payload.get('message', 'unknown error')
             )
-            emit('chat_response', {
-                'answer': "I ran into a problem while talking to the trained bot. Please try again in a moment.",
-                'error': True,
-                'bot_id': active_bot.id,
-                'rasa': True,
-            })
-            return
+            result = retrieval_fallback_response(active_bot, query)
     else:
-        emit('chat_response', {
-            'answer': f"Bot '{active_bot.name}' is not ready. Train the bot before chatting.",
-            'error': True,
-            'bot_id': active_bot.id,
-            'rasa': True,
-        })
-        return
+        result = retrieval_fallback_response(active_bot, query)
 
     if rasa_used:
         result.setdefault('rasa', True)
@@ -1505,9 +1722,47 @@ def api_auto_detect_intents():
     storage = get_storage_paths(bot)
     ensure_storage_dirs(storage)
 
-    result = auto_detect_intents(raw_dir=storage['raw_dir'])
+    result = auto_detect_intents(raw_dir=storage['raw_dir'], profile_path=storage.get('profile_path'))
     if result.get('status') == 'error':
         return jsonify(result), 500
+
+    intents_payload = result.get('intents') or []
+    # Remove previous auto-detected intents for this bot to avoid duplication
+    try:
+        existing = Intent.query.filter_by(bot_id=bot.id if bot else None, auto_detected=True).all()
+        for intent in existing:
+            db.session.delete(intent)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    created = 0
+    for intent_data in intents_payload:
+        name_raw = intent_data.get('name') or ''
+        name = slugify_name(name_raw)
+        if bot:
+            name = f"{bot.slug}-{name}"
+        intent = Intent(
+            bot_id=bot.id if bot else None,
+            name=name,
+            description=intent_data.get('description'),
+            patterns=[],
+            examples=intent_data.get('examples') or [],
+            auto_detected=True,
+            enabled=True,
+            action_type='static',
+            responses=[intent_data.get('canonical_response')] if intent_data.get('canonical_response') else []
+        )
+        try:
+            db.session.add(intent)
+            db.session.commit()
+            created += 1
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning("Failed to store auto intent %s: %s", name, exc)
+
+    result['stored'] = created
+    result['bot_id'] = bot.id if bot else None
 
     result['bot_id'] = bot.id if bot else None
     return jsonify(result)

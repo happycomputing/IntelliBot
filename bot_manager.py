@@ -17,11 +17,12 @@ BOTS_DIR = os.path.abspath(BOTS_DIR)
 RASA_VENV_PATH = os.path.join(BASE_DIR, '.venv-rasa')
 RASA_BIN = os.path.join(RASA_VENV_PATH, 'bin', 'rasa')
 RASA_PYTHON = os.path.join(RASA_VENV_PATH, 'bin', 'python')
+STARTER_PROJECT_DIR = os.path.join(BASE_DIR, 'bots_starter')
 
 try:
-    os.makedirs(BOTS_DIR, exist_ok=True)
+  os.makedirs(BOTS_DIR, exist_ok=True)
 except OSError as exc:
-    raise RuntimeError(f"Unable to prepare bots directory '{BOTS_DIR}': {exc}") from exc
+  raise RuntimeError(f"Unable to prepare bots directory '{BOTS_DIR}': {exc}") from exc
 
 
 def rasa_available() -> bool:
@@ -124,3 +125,63 @@ def train_rasa_project(project_path: str) -> tuple[bool, Optional[str]]:
     if result.returncode == 0:
         return True, None
     return False, result.stderr or result.stdout or 'Training failed'
+
+
+def ensure_starter_model() -> Optional[str]:
+  """
+  Ensure there is a pre-trained starter Rasa model we can clone for new bots.
+
+  Returns the model path if available.
+  """
+  if not rasa_available():
+    return None
+
+  os.makedirs(STARTER_PROJECT_DIR, exist_ok=True)
+  starter_model = latest_model_path(STARTER_PROJECT_DIR)
+  if starter_model:
+    return starter_model
+
+  env = os.environ.copy()
+  env.setdefault('RASA_TELEMETRY_ENABLED', 'false')
+
+  init = subprocess.run(
+    [RASA_PYTHON, '-m', 'rasa', 'init', '--no-prompt'],
+    cwd=STARTER_PROJECT_DIR,
+    env=env,
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+  if init.returncode != 0:
+    raise RuntimeError(init.stderr or init.stdout or 'Failed to initialise starter Rasa project')
+
+  trained, error = train_rasa_project(STARTER_PROJECT_DIR)
+  if not trained:
+    raise RuntimeError(error or 'Failed to train starter Rasa project')
+
+  return latest_model_path(STARTER_PROJECT_DIR)
+
+
+def clone_starter_project(target_path: str) -> Optional[str]:
+  """
+  Copy the starter Rasa project and model to a new bot location.
+
+  Returns the model path that should be used for the bot.
+  """
+  starter_model = ensure_starter_model()
+  if not starter_model:
+    return None
+
+  target_abs = ensure_absolute_project_path(target_path)
+  os.makedirs(os.path.dirname(target_abs), exist_ok=True)
+
+  # Copy project tree except models; we'll copy the trained model explicitly.
+  import shutil
+  if os.path.exists(target_abs):
+    shutil.rmtree(target_abs)
+  shutil.copytree(STARTER_PROJECT_DIR, target_abs)
+
+  models_dir = Path(target_abs) / 'models'
+  models_dir.mkdir(parents=True, exist_ok=True)
+  shutil.copy2(starter_model, models_dir / Path(starter_model).name)
+  return latest_model_path(target_abs)

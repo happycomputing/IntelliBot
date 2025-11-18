@@ -21,43 +21,6 @@
     <div id="inline-status" class="alert d-none" role="alert"></div>
     <div class="row g-3 h-100">
       <div class="col-md-3 d-flex flex-column h-100" id="sidebar-column">
-        <div class="card mb-3" id="config-card">
-          <div class="card-header bg-primary text-white">
-            <i class="bi bi-gear"></i> Configuration
-          </div>
-          <div class="card-body">
-            <div id="bot-status-banner" class="alert alert-info small d-none mb-3" role="alert"></div>
-            <div class="mb-3">
-              <label class="form-label">Website URL</label>
-              <input type="url" class="form-control" id="url-input">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Max Pages</label>
-              <input type="number" class="form-control" id="max-pages-input" value="500">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Chunk Size</label>
-              <input type="number" class="form-control" id="chunk-size-input" value="900">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Chunk Overlap</label>
-              <input type="number" class="form-control" id="chunk-overlap-input" value="150">
-            </div>
-            <div class="mb-3">
-              <label class="form-label small">Upload Documents (Optional)</label>
-              <input type="file" class="form-control form-control-sm" id="doc-upload" multiple accept=".md,.pdf">
-              <small class="text-muted">Markdown or PDF files</small>
-            </div>
-            <button class="btn btn-success w-100 mb-2" id="index-btn" onclick="startIndexing()">
-              <i class="bi bi-lightning"></i> Index Knowledge Base
-            </button>
-            <div class="alert alert-warning py-2 px-2 small mb-2">
-              This will crawl the configured URL, process uploaded documents, rebuild the index, and auto-detect
-              intents.
-            </div>
-          </div>
-        </div>
-
         <div class="card">
           <div class="card-header bg-info text-white">
             <i class="bi bi-sliders"></i> Retrieval Settings
@@ -176,15 +139,9 @@
           <div class="modal-body">
           <ul class="nav nav-tabs mb-3" id="intelligenceTabs" role="tablist">
             <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button"
+              <button class="nav-link active" id="indexing-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button"
                 role="tab">
-                <i class="bi bi-bar-chart"></i> Stats
-              </button>
-            </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="conversations-tab" data-bs-toggle="tab"
-                data-bs-target="#conversations" type="button" role="tab">
-                <i class="bi bi-chat-dots"></i> Conversations
+                <i class="bi bi-bar-chart"></i> Indexing
               </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -351,6 +308,12 @@
               <button class="btn btn-primary btn-sm mb-3" onclick="exportTrainingData()">
                 <i class="bi bi-download"></i> Export Rasa YAML
               </button>
+              <div class="d-grid gap-2 mb-3">
+                <button class="btn btn-warning btn-sm" onclick="triggerTraining(true)">
+                  <i class="bi bi-cpu"></i> Retrain bot (include recent conversations)
+                </button>
+                <small class="text-muted">Uses auto-detected intents and recent chats to refresh the Rasa model.</small>
+              </div>
               <div id="training-stats" class="alert alert-info" style="display: none;"></div>
               <div id="training-output">
                 <pre class="bg-light p-3"

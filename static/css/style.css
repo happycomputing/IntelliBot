@@ -157,7 +157,7 @@ body.status-overlay-open {
     align-items: flex-start;
     padding-top: 10vh;
     background: rgba(15, 23, 42, 0.55);
-    z-index: 2000;
+    z-index: 5000;
 }
 
 .status-overlay.active {
