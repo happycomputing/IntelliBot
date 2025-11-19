@@ -7,6 +7,7 @@ import glob
 import shutil
 import subprocess
 import threading
+import signal
 import yaml
 import logging
 import socket
@@ -219,14 +220,44 @@ def stop_rasa_service(bot_id, clear_entry=False):
             _rasa_services.pop(bot_id, None)
 
 
+def kill_stale_rasa_processes(bot):
+    """Terminate any running Rasa 'run' processes for a bot when not tracked."""
+    if not bot or not bot.slug:
+        return
+    try:
+        output = subprocess.check_output(['ps', 'ax', '-o', 'pid=', '-o', 'cmd='], text=True)
+    except Exception:
+        return
+    for line in output.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        cmd = parts[1]
+        if 'rasa run' in cmd and bot.slug in cmd:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                continue
+
 def start_rasa_service(bot, force_restart=False):
     """Start or reuse a persistent Rasa HTTP server for a bot."""
     if not bot or not rasa_available():
         return False, "Rasa runtime not available", None
 
+    # Ensure any stale Rasa processes for this bot are terminated
+    kill_stale_rasa_processes(bot)
+
     model_path = latest_model_path(bot.project_path)
     if not model_path:
         return False, "Bot has no trained model yet", None
+
+    # On fresh app start, clear any stale rasa run processes for this bot.
+    if bot.id not in _rasa_services:
+        kill_stale_rasa_processes(bot)
 
     # If a service already lives on the recorded port, reuse it.
     if bot.rasa_port and rasa_service_healthy(bot.rasa_port) and not force_restart:
@@ -1630,6 +1661,7 @@ def retrieval_fallback_response(bot, query):
 
 @socketio.on('chat_message')
 def handle_chat_message(data):
+    start_time = time.time()
     query = (data.get('message') or '').strip()
     if not query:
         emit('chat_response', {'answer': 'Please enter a message.'})
@@ -1692,12 +1724,16 @@ def handle_chat_message(data):
     # Log conversation to database if available
     if DB_AVAILABLE:
         try:
+            elapsed = None
+            if start_time:
+                elapsed = (time.time() - start_time)
             conversation = Conversation(
                 bot_id=active_bot.id,
                 question=query,
                 answer=result.get('answer', ''),
                 sources=result.get('sources', []),
-                similarity_scores=result.get('similarity_scores', [])
+                similarity_scores=result.get('similarity_scores', []),
+                response_time=elapsed
             )
             db.session.add(conversation)
             db.session.commit()

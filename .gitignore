@@ -52,6 +52,5 @@ Thumbs.db
 # Temporary files
 *.tmp
 .cache/
-agents.md
 kb/index/embeddings.npy
 foo/

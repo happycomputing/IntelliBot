@@ -1576,22 +1576,26 @@ function loadConversations() {
       container.innerHTML = conversations.map(conv => {
         const date = new Date(conv.timestamp).toLocaleString();
         const feedback = conv.feedback ? conv.feedback : '';
+        const questionHtml = escapeHtml(conv.question || '').replace(/\n/g, '<br>');
+        const answerHtml = escapeHtml(conv.answer || '').replace(/\n/g, '<br>');
 
         return `
-                    <div class="card mb-2 conversation-item">
-                        <div class="card-body p-2">
-                            <div class="small"><strong>Q:</strong> ${escapeHtml(conv.question.substring(0, 80))}${conv.question.length > 80 ? '...' : ''}</div>
-                            <div class="small text-muted"><strong>A:</strong> ${escapeHtml(conv.answer.substring(0, 100))}${conv.answer.length > 100 ? '...' : ''}</div>
-                            <div class="text-muted" style="font-size: 0.75rem;">${date}</div>
-                            <div class="mt-1">
-                                <input type="text" class="form-control form-control-sm" id="feedback-${conv.id}" placeholder="Add feedback..." value="${escapeHtml(feedback)}">
-                                <button class="btn btn-sm btn-outline-primary mt-1 w-100" onclick="saveFeedback(${conv.id})">
-                                    <i class="bi bi-save"></i> Save Feedback
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
+          <div class="card mb-2 conversation-item">
+            <div class="card-body p-2">
+              <div class="small fw-semibold text-muted">Question</div>
+              <div class="conversation-text">${questionHtml || '<em>No question text</em>'}</div>
+              <div class="small fw-semibold text-muted mt-2">Answer</div>
+              <div class="conversation-text text-muted">${answerHtml || '<em>No answer recorded</em>'}</div>
+              <div class="text-muted" style="font-size: 0.75rem;">${date}</div>
+              <div class="mt-2">
+                <input type="text" class="form-control form-control-sm" id="feedback-${conv.id}" placeholder="Add feedback..." value="${escapeHtml(feedback)}">
+                <button class="btn btn-sm btn-outline-primary mt-1 w-100" onclick="saveFeedback(${conv.id})">
+                  <i class="bi bi-save"></i> Save Feedback
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
       }).join('');
     })
     .catch(err => {
@@ -1676,12 +1680,16 @@ function renderPanelConversations(conversations) {
   container.innerHTML = conversations.map(conv => {
     const date = new Date(conv.timestamp).toLocaleString();
     const hasFeedback = conv.feedback && conv.feedback.length > 0;
+    const questionHtml = escapeHtml(conv.question || '').replace(/\n/g, '<br>');
+    const answerHtml = escapeHtml(conv.answer || '').replace(/\n/g, '<br>');
     return `
             <div class="col-md-6 mb-2">
                 <div class="card">
                     <div class="card-body p-2">
-                        <div class="small"><strong>Q:</strong> ${escapeHtml(conv.question)}</div>
-                        <div class="small text-muted"><strong>A:</strong> ${escapeHtml(conv.answer.substring(0, 150))}${conv.answer.length > 150 ? '...' : ''}</div>
+                        <div class="small fw-semibold text-muted">Question</div>
+                        <div class="conversation-text">${questionHtml || '<em>No question text</em>'}</div>
+                        <div class="small fw-semibold text-muted mt-2">Answer</div>
+                        <div class="conversation-text text-muted">${answerHtml || '<em>No answer recorded</em>'}</div>
                         <div class="text-muted" style="font-size: 0.7rem;">${date}</div>
                         ${hasFeedback ? `<div class="badge bg-warning text-dark mt-1"><i class="bi bi-chat-square-quote"></i> ${escapeHtml(conv.feedback)}</div>` : ''}
                     </div>

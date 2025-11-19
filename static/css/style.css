@@ -149,6 +149,18 @@ body.status-overlay-open {
     font-size: 0.8rem;
 }
 
+.conversation-text {
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid #f1f1f1;
+    border-radius: 0.35rem;
+    padding: 0.4rem 0.55rem;
+    background-color: #fdfdfd;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
 .status-overlay {
     position: fixed;
     inset: 0;
