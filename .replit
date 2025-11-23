@@ -28,7 +28,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python3 -m gunicorn --worker-class eventlet -w 1 --worker-connections 1000 --bind 0.0.0.0:5000 --reuse-port app:app"
+args = "python3.11 -m gunicorn --worker-class eventlet -w 1 --worker-connections 1000 --bind 0.0.0.0:5000 --reuse-port app:app"
 waitForPort = 5000
 
 [[ports]]
@@ -36,8 +36,8 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 45987
-externalPort = 3001
+localPort = 41733
+externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
