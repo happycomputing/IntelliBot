@@ -17,23 +17,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Start application"
-
-[[workflows.workflow]]
-name = "Server"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python app.py"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
 
 [[workflows.workflow]]
 name = "Start application"
@@ -51,6 +35,10 @@ externalPort = 80
 [[ports]]
 localPort = 34883
 externalPort = 3000
+
+[[ports]]
+localPort = 35691
+externalPort = 3003
 
 [[ports]]
 localPort = 37379
