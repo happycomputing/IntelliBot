@@ -78,6 +78,34 @@ The script defaults to the official Ubuntu server images (`ubuntu:24.04`) and au
    uv pip install -r requirements.txt
    ```
 
+### Local Rasa Virtual Environment
+
+IntelliBot shells into a dedicated `.venv-rasa` for training/running each bot so that the heavier Rasa stack stays isolated from the main Flask app dependencies. Set it up once inside the repo root:
+
+1. **Create the virtual environment**
+   ```bash
+   python3.11 -m venv .venv-rasa
+   ```
+
+2. **Activate it**
+   ```bash
+   source .venv-rasa/bin/activate
+   ```
+
+3. **Install Rasa 3.6.x (and friends)**
+   ```bash
+   pip install "rasa==3.6.*" "rasa-sdk==3.6.*"
+   # Optional but recommended: disable telemetry locally
+   export RASA_TELEMETRY_ENABLED=false
+   ```
+
+4. **Verify the CLI**
+   ```bash
+   .venv-rasa/bin/rasa --version
+   ```
+
+Once `.venv-rasa` exists, commands such as Rasa project init, training, and per-bot services will work automatically via `bot_manager.py`.
+
 4. **Run the application**
    ```bash
    python app.py
