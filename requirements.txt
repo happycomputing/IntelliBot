@@ -13,3 +13,12 @@ requests
 sqlalchemy
 trafilatura
 lxml_html_clean
+email_validator
+flask
+flask-sqlalchemy
+gunicorn
+psycopg2-binary
+email_validator
+eventlet
+lxml_html_clean
+psycopg2-binary
