@@ -16,6 +16,10 @@ class Conversation(db.Model):
     answer = db.Column(db.Text, nullable=False)
     sources = db.Column(db.JSON)
     similarity_scores = db.Column(db.JSON)
+    intent = db.Column(db.String(120))
+    intent_confidence = db.Column(db.Float)
+    intent_ranking = db.Column(db.JSON)
+    rasa_used = db.Column(db.Boolean, default=True)
     feedback = db.Column(db.Text)
     response_time = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -29,6 +33,10 @@ class Conversation(db.Model):
             'answer': self.answer,
             'sources': self.sources,
             'similarity_scores': self.similarity_scores,
+            'intent': self.intent,
+            'intent_confidence': self.intent_confidence,
+            'intent_ranking': self.intent_ranking,
+            'rasa_used': self.rasa_used,
             'feedback': self.feedback,
             'response_time': self.response_time,
             'timestamp': self.timestamp.isoformat()

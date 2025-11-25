@@ -108,6 +108,11 @@ def ensure_column_exists(table_name, column_name, ddl):
 def ensure_schema_columns():
     """Add new columns introduced after initial deploy (SQLite-friendly)."""
     ensure_column_exists('conversations', 'bot_id', 'bot_id INTEGER')
+    ensure_column_exists('conversations', 'intent', 'intent TEXT')
+    ensure_column_exists('conversations', 'intent_confidence', 'intent_confidence REAL')
+    ensure_column_exists('conversations', 'intent_ranking', 'intent_ranking JSON')
+    ensure_column_exists('conversations', 'rasa_used', 'rasa_used INTEGER')
+    ensure_column_exists('conversations', 'response_time', 'response_time REAL')
     ensure_column_exists('intents', 'bot_id', 'bot_id INTEGER')
     ensure_column_exists('bots', 'rasa_port', 'rasa_port INTEGER')
 
@@ -248,15 +253,18 @@ def start_rasa_service(bot, force_restart=False):
     if not bot or not rasa_available():
         return False, "Rasa runtime not available", None
 
-    # Ensure any stale Rasa processes for this bot are terminated
-    kill_stale_rasa_processes(bot)
+    # Only terminate existing processes when explicitly asked or when the recorded port is unhealthy.
+    if force_restart:
+        kill_stale_rasa_processes(bot)
+    elif bot.rasa_port and not rasa_service_healthy(bot.rasa_port):
+        kill_stale_rasa_processes(bot)
 
     model_path = latest_model_path(bot.project_path)
     if not model_path:
         return False, "Bot has no trained model yet", None
 
-    # On fresh app start, clear any stale rasa run processes for this bot.
-    if bot.id not in _rasa_services:
+    # On fresh app start, clear stale processes only when they look dead.
+    if bot.id not in _rasa_services and bot.rasa_port and not rasa_service_healthy(bot.rasa_port):
         kill_stale_rasa_processes(bot)
 
     # If a service already lives on the recorded port, reuse it.
@@ -312,6 +320,7 @@ def start_rasa_service(bot, force_restart=False):
             text=True,
         )
     except Exception as exc:
+        app.logger.error("Failed to start Rasa process for bot %s: %s", bot.id, exc)
         return False, str(exc), None
 
     # Wait briefly for the server to come up; capture early failures
@@ -320,7 +329,9 @@ def start_rasa_service(bot, force_restart=False):
         if process.poll() is not None:
             stderr = (process.stderr.read() or '').strip() if process.stderr else ''
             stdout = (process.stdout.read() or '').strip() if process.stdout else ''
-            return False, stderr or stdout or 'Rasa service exited unexpectedly', None
+            message = stderr or stdout or 'Rasa service exited unexpectedly'
+            app.logger.error("Rasa process for bot %s exited early: %s", bot.id, message)
+            return False, message, None
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
             try:
@@ -330,6 +341,15 @@ def start_rasa_service(bot, force_restart=False):
             except OSError:
                 time.sleep(0.25)
     if not started:
+        stderr = (process.stderr.read() or '').strip() if process.stderr else ''
+        stdout = (process.stdout.read() or '').strip() if process.stdout else ''
+        app.logger.error(
+            "Rasa service for bot %s failed to bind to %s: %s %s",
+            bot.id,
+            port,
+            stderr,
+            stdout,
+        )
         try:
             process.terminate()
             process.wait(timeout=5)
@@ -410,6 +430,7 @@ def run_rasa_turn(bot, message, sender_id=None):
 
     intent_name = None
     confidence = None
+    intent_ranking = None
     try:
         parse_resp = requests.post(
             f"http://127.0.0.1:{port}/model/parse",
@@ -422,6 +443,16 @@ def run_rasa_turn(bot, message, sender_id=None):
             if isinstance(intent_data, dict):
                 intent_name = intent_data.get('name')
                 confidence = intent_data.get('confidence')
+            ranking_data = parse_payload.get('intent_ranking') if isinstance(parse_payload, dict) else None
+            if isinstance(ranking_data, list):
+                intent_ranking = []
+                for item in ranking_data:
+                    if not isinstance(item, dict):
+                        continue
+                    intent_ranking.append({
+                        'name': item.get('name'),
+                        'confidence': item.get('confidence')
+                    })
     except Exception:
         pass
 
@@ -430,6 +461,7 @@ def run_rasa_turn(bot, message, sender_id=None):
         "responses": responses if isinstance(responses, list) else [],
         "intent": intent_name,
         "confidence": confidence,
+        "intent_ranking": intent_ranking,
         "port": port,
     }
 
@@ -1681,6 +1713,8 @@ def retrieval_fallback_response(bot, query):
 
     retrieval_result['answer'] = answer_text
     retrieval_result['intent'] = retrieval_result.get('intent') or 'retrieval'
+    retrieval_result['intent_ranking'] = retrieval_result.get('intent_ranking') or []
+    retrieval_result['confidence'] = retrieval_result.get('confidence')
     retrieval_result['rasa'] = False
     return retrieval_result
 
@@ -1727,6 +1761,7 @@ def handle_chat_message(data):
                     'sources': [],
                     'intent': rasa_payload.get('intent') or 'rasa',
                     'confidence': rasa_payload.get('confidence'),
+                    'intent_ranking': rasa_payload.get('intent_ranking') or [],
                     'bot_id': active_bot.id,
                     'responses': responses,
                     'rasa': True,
@@ -1745,19 +1780,23 @@ def handle_chat_message(data):
         result.setdefault('rasa', True)
 
     result.setdefault('bot_id', active_bot.id)
+    result.setdefault('intent_ranking', [])
+    elapsed = (time.time() - start_time) if start_time else None
+    result['response_time'] = elapsed
 
     # Log conversation to database if available
     if DB_AVAILABLE:
         try:
-            elapsed = None
-            if start_time:
-                elapsed = (time.time() - start_time)
             conversation = Conversation(
                 bot_id=active_bot.id,
                 question=query,
                 answer=result.get('answer', ''),
                 sources=result.get('sources', []),
                 similarity_scores=result.get('similarity_scores', []),
+                intent=result.get('intent'),
+                intent_confidence=result.get('confidence'),
+                intent_ranking=result.get('intent_ranking'),
+                rasa_used=bool(result.get('rasa')),
                 response_time=elapsed
             )
             db.session.add(conversation)

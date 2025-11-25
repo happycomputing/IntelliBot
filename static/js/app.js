@@ -456,7 +456,11 @@ function loadChatHistory(options = {}) {
           sources: conv.sources || [],
           similarity_scores: conv.similarity_scores || [],
           bot_id: conv.bot_id,
-          rasa: true
+          intent: conv.intent || '',
+          confidence: conv.intent_confidence,
+          intent_ranking: conv.intent_ranking || [],
+          response_time: conv.response_time,
+          rasa: conv.rasa_used === false ? false : true
         };
         addBotMessage(botPayload, {
           conversationId: conv.id,
@@ -957,6 +961,21 @@ function formatTimestamp(timestamp) {
   }
 }
 
+function formatResponseTime(seconds) {
+  if (seconds === undefined || seconds === null) {
+    return '';
+  }
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) {
+    return '';
+  }
+  if (value >= 1) {
+    const decimals = value >= 10 ? 1 : 2;
+    return `${value.toFixed(decimals)}s`;
+  }
+  return `${Math.round(value * 1000)} ms`;
+}
+
 function clearChatPlaceholder() {
   const container = document.getElementById('chat-messages');
   if (!container) {
@@ -1217,8 +1236,8 @@ function addBotMessage(data, options = {}) {
   }
   clearChatPlaceholder();
   const messageDiv = document.createElement('div');
-  const isRasa = Boolean(data && data.rasa);
-  const botInfo = isRasa && data && data.bot_id ? bots.get(data.bot_id) : null;
+  const isRasa = data && data.rasa === false ? false : true;
+  const botInfo = data && data.bot_id ? bots.get(data.bot_id) : null;
   const botLabel = botInfo && botInfo.name ? botInfo.name : (isRasa ? 'Rasa Bot' : 'IntelliBot');
   const headerIcon = isRasa ? 'bi-diagram-3' : 'bi-robot';
   messageDiv.className = `message message-bot${isRasa ? ' message-bot-rasa' : ''}`;
@@ -1252,13 +1271,33 @@ function addBotMessage(data, options = {}) {
   const confidenceBadge = confidenceValue !== null && confidenceValue > 0.5 ? 'bg-success' : 'bg-warning';
   const timestampText = options.timestamp ? formatTimestamp(options.timestamp) : '';
   const answerText = typeof data.answer === 'string' ? data.answer : '';
-  const rasaBadge = isRasa ? '<span class="badge bg-secondary ms-2">Rasa</span>' : '';
+  const intentLabel = typeof data.intent === 'string' ? data.intent : '';
+  const intentRanking = Array.isArray(data.intent_ranking) ? data.intent_ranking.filter(item => item && item.name) : [];
+  const rankingParts = intentRanking.slice(0, 3).map(item => {
+    const pct = typeof item.confidence === 'number' ? `${Math.round(item.confidence * 100)}%` : null;
+    const label = escapeHtml(item.name || 'unknown');
+    return pct ? `${label} (${pct})` : label;
+  }).filter(Boolean);
+  const responseTimeText = formatResponseTime(data.response_time);
+  const pathBadge = isRasa ? '<span class="badge bg-secondary ms-2">Rasa</span>' : '<span class="badge bg-dark ms-2">Retrieval</span>';
+  const metaBadges = [];
+  if (intentLabel) {
+    metaBadges.push(`<span class="badge bg-light text-dark"><i class="bi bi-bullseye me-1"></i>${escapeHtml(intentLabel)}</span>`);
+  }
+  if (rankingParts.length) {
+    metaBadges.push(`<span class="badge bg-light text-dark">Top intents: ${rankingParts.join(' • ')}</span>`);
+  }
+  if (responseTimeText) {
+    metaBadges.push(`<span class="badge bg-light text-dark"><i class="bi bi-stopwatch me-1"></i>${responseTimeText}</span>`);
+  }
+  const metaHtml = metaBadges.length ? `<div class="message-details">${metaBadges.join(' ')}</div>` : '';
   messageDiv.innerHTML = `
         <div class="message-header">
             <i class="bi ${headerIcon}"></i> ${escapeHtml(botLabel)}
-            ${rasaBadge}
+            ${pathBadge}
             ${confidenceValue !== null && confidenceValue > 0 ? `<span class="badge ${confidenceBadge} confidence-badge ms-auto">${confidencePercent}% confidence</span>` : ''}
         </div>
+        ${metaHtml}
         <div class="message-content">${escapeHtml(answerText).replace(/\n/g, '<br>')}</div>
         ${sourcesHtml}
         ${timestampText ? `<div class="message-meta">${escapeHtml(timestampText)}</div>` : ''}
