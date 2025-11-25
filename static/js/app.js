@@ -1290,12 +1290,10 @@ function buildFeedbackElement(conversationId, feedback) {
   const safeFeedback = hasFeedback ? escapeHtml(String(feedback).trim()) : '';
   wrapper.innerHTML = `
         <div class="d-flex flex-wrap align-items-center gap-2 feedback-actions">
-            <span class="text-muted small">${hasFeedback ? 'Feedback recorded:' : 'Feedback: '}</span>
-            ${hasFeedback ? `<span class="badge bg-light text-dark feedback-recorded">${safeFeedback}</span>` : `
-                <button type="button" class="btn btn-outline-success btn-sm" onclick="submitQuickFeedback(${conversationId}, 'helpful')"><i class="bi bi-hand-thumbs-up"></i> Helpful</button>
-                <button type="button" class="btn btn-outline-danger btn-sm" onclick="submitQuickFeedback(${conversationId}, 'not helpful')"><i class="bi bi-hand-thumbs-down"></i> Not Helpful</button>
-            `}
+            <span class="text-muted small">${hasFeedback ? 'Feedback recorded:' : 'No feedback yet'}</span>
+            ${hasFeedback ? `<span class="badge bg-light text-dark feedback-recorded">${safeFeedback}</span>` : ''}
             <button type="button" class="btn btn-link btn-sm p-0" onclick="toggleFeedbackForm(${conversationId})">${hasFeedback ? 'Update note' : 'Add note'}</button>
+            <button type="button" class="btn btn-link btn-sm text-danger" onclick="deleteConversation(${conversationId})"><i class="bi bi-trash"></i> Delete</button>
         </div>
         <div class="feedback-form mt-2 d-none">
             <textarea class="form-control form-control-sm" rows="2" id="feedback-text-${conversationId}" placeholder="Share more details..."></textarea>
@@ -1310,10 +1308,6 @@ function buildFeedbackElement(conversationId, feedback) {
     textarea.value = feedback;
   }
   return wrapper;
-}
-
-function submitQuickFeedback(conversationId, value) {
-  submitConversationFeedback(conversationId, value);
 }
 
 function toggleFeedbackForm(conversationId, hide = false) {
@@ -1370,6 +1364,42 @@ function submitConversationFeedback(conversationId, feedback) {
     .catch(err => {
       console.error('Error saving feedback:', err);
       showStatus('Error saving feedback.', 'error');
+    });
+}
+
+function deleteConversation(conversationId) {
+  if (!conversationId) {
+    return;
+  }
+  if (!confirm('Delete this conversation? This cannot be undone.')) {
+    return;
+  }
+  fetch(`/api/conversations/${conversationId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachBotId({}))
+  })
+    .then(async response => {
+      const text = await response.text();
+      let payload = {};
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch (err) {
+        console.error('Delete conversation parse error:', err, text);
+        showStatus('Unable to delete conversation (invalid response).', 'error');
+        return;
+      }
+      if (!response.ok || payload.status !== 'deleted') {
+        showStatus(payload.message || payload.error || 'Unable to delete conversation.', 'error');
+        return;
+      }
+      showStatus('Conversation deleted.', 'success');
+      loadChatHistory({ force: true });
+      loadPanelConversations();
+    })
+    .catch(err => {
+      console.error('Unable to delete conversation', err);
+      showStatus('Unable to delete conversation.', 'error');
     });
 }
 

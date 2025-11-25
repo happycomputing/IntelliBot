@@ -1396,6 +1396,31 @@ def add_feedback(conv_id):
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route('/api/conversations/<int:conv_id>', methods=['DELETE'])
+def delete_conversation(conv_id):
+    if not DB_AVAILABLE:
+        return jsonify({"status": "error", "message": "Database unavailable"}), 503
+
+    data = request.get_json(silent=True) or {}
+    bot_id = data.get('bot_id') or request.args.get('bot_id')
+    bot = resolve_bot(bot_id)
+    if bot_id and bot is None:
+        return jsonify({"status": "error", "message": "Bot not found"}), 404
+
+    try:
+        conversation = Conversation.query.get(conv_id)
+        if not conversation:
+            return jsonify({"status": "error", "message": "Conversation not found"}), 404
+        if bot and conversation.bot_id != bot.id:
+            return jsonify({"status": "error", "message": "Conversation belongs to another bot"}), 403
+        db.session.delete(conversation)
+        db.session.commit()
+        return jsonify({"status": "deleted", "conversation_id": conv_id})
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
 @app.route('/api/clear-conversations', methods=['POST'])
 def clear_conversations():
     if not DB_AVAILABLE:

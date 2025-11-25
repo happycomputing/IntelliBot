@@ -9,7 +9,7 @@ db = SQLAlchemy(model_class=Base)
 
 class Conversation(db.Model):
     __tablename__ = 'conversations'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     bot_id = db.Column(db.Integer, db.ForeignKey('bots.id'), nullable=True)
     question = db.Column(db.Text, nullable=False)
@@ -17,9 +17,10 @@ class Conversation(db.Model):
     sources = db.Column(db.JSON)
     similarity_scores = db.Column(db.JSON)
     feedback = db.Column(db.Text)
+    response_time = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     bot = db.relationship('Bot', backref='conversations', lazy=True)
-    
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -29,6 +30,7 @@ class Conversation(db.Model):
             'sources': self.sources,
             'similarity_scores': self.similarity_scores,
             'feedback': self.feedback,
+            'response_time': self.response_time,
             'timestamp': self.timestamp.isoformat()
         }
 
